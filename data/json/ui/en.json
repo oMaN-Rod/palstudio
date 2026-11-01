@@ -754,7 +754,6 @@
   "live_title": "Live Game",
   "live_write_in_flight": "Another change is still running.",
   "live_world_not_loaded": "World not loaded yet.",
-  "load_3d_model": "Load 3D model",
   "load_guild_bases": "Load Guild/Bases",
   "load_player": "Load Player",
   "loaded_entity": "Loaded {entity}",

@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import '$utils/__tests__/fixtures/animatePolyfill';
-import { render, screen } from '@testing-library/svelte';
-import userEvent from '@testing-library/user-event';
+import { render } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -53,10 +52,6 @@ function canvas(): HTMLElement | null {
 	return document.querySelector('canvas');
 }
 
-function loadButton(): HTMLElement {
-	return screen.getByRole('button', { name: 'Load 3D model' });
-}
-
 beforeEach(() => {
 	renderers.length = 0;
 	meshLibrary.requested.length = 0;
@@ -71,22 +66,8 @@ beforeEach(() => {
 });
 
 describe('PalModelViewer', () => {
-	it('offers to load the model instead of loading it', async () => {
+	it('mounts the model straight away', async () => {
 		render(PalModelViewer, { props: { characterKey: 'testpal' } });
-		await tick();
-
-		expect(loadButton()).toBeTruthy();
-		expect(canvas()).toBeNull();
-		expect(renderers).toHaveLength(0);
-		expect(meshLibrary.requested).toEqual([]);
-	});
-
-	it('mounts the model once the user asks for it', async () => {
-		const user = userEvent.setup();
-		render(PalModelViewer, { props: { characterKey: 'testpal' } });
-		await tick();
-
-		await user.click(loadButton());
 		await tick();
 
 		expect(canvas()).not.toBeNull();
@@ -95,11 +76,7 @@ describe('PalModelViewer', () => {
 	});
 
 	it('gives up its GL context when it goes away', async () => {
-		const user = userEvent.setup();
 		const { unmount } = render(PalModelViewer, { props: { characterKey: 'testpal' } });
-		await tick();
-
-		await user.click(loadButton());
 		await tick();
 
 		unmount();
@@ -109,27 +86,21 @@ describe('PalModelViewer', () => {
 	});
 
 	it('asks again for a different pal', async () => {
-		const user = userEvent.setup();
 		const { rerender } = render(PalModelViewer, { props: { characterKey: 'testpal' } });
 		await tick();
-
-		await user.click(loadButton());
-		await tick();
-		expect(canvas()).not.toBeNull();
 
 		await rerender({ characterKey: 'otherpal' });
 		await tick();
 
-		expect(canvas()).toBeNull();
-		expect(loadButton()).toBeTruthy();
-		expect(renderers[0].disposed).toBe(1);
+		expect(canvas()).not.toBeNull();
+		expect(meshLibrary.requested).toEqual(['testpal', 'otherpal']);
 	});
 
-	it('shows the fallback rather than an offer for a pal with no model', async () => {
+	it('shows the fallback for a pal with no model', async () => {
 		render(PalModelViewer, { props: { characterKey: 'missing' } });
 		await tick();
 
-		expect(screen.queryByRole('button', { name: 'Load 3D model' })).toBeNull();
 		expect(canvas()).toBeNull();
+		expect(renderers.every((renderer) => renderer.disposed === 1)).toBe(true);
 	});
 });

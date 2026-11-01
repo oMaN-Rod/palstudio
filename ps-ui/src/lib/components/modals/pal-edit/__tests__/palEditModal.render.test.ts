@@ -272,22 +272,9 @@ describe('PalEditModal sections', () => {
 		expect(labels).toContain('Stats');
 	});
 
-	it('offers the 3D model rather than building a GL context for it', async () => {
+	it('builds the 3D model when the modal opens', async () => {
 		setViewport(PHONE_WIDTH);
 		render(PalEditModal);
-		await tick();
-
-		expect(screen.getByRole('button', { name: 'Load 3D model' })).not.toBeNull();
-		expect(document.querySelector('canvas')).toBeNull();
-		expect(renderers).toHaveLength(0);
-	});
-
-	it('builds the model only once the user asks for it', async () => {
-		setViewport(PHONE_WIDTH);
-		render(PalEditModal);
-		await tick();
-
-		await userEvent.click(screen.getByRole('button', { name: 'Load 3D model' }));
 		await tick();
 
 		expect(document.querySelector('canvas')).not.toBeNull();
