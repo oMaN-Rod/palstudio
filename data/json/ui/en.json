@@ -1903,6 +1903,8 @@
   "mods_framework_not_installed": "Not installed",
   "mods_framework_installed_version": "Installed {version}",
   "mods_framework_latest": "Latest {version}",
+  "mods_framework_amity_separate": "Amity is a separate download in this build. Download its zip from Nexus Mods, then add it with Install a mod.",
+  "mods_framework_amity_get": "Get Amity on Nexus Mods",
   "mods_framework_managed": "Managed by PalStudio",
   "mods_framework_unmanaged": "Not installed by PalStudio",
   "mods_framework_install": "Install {name}",

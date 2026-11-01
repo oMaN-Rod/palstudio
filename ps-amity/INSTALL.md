@@ -35,7 +35,12 @@ game at startup.
 
 ## 3. Unzip PSAmity
 
-Download `PSAmity-UE4SS-<version>.zip` and unzip it so that its `PSAmity`
+PalStudio can install PSAmity for you. Windows downloads of PalStudio from
+GitHub include it, so use the Frameworks tab. Downloads from Nexus Mods do not:
+get `PSAmity-UE4SS-<version>.zip` from the Files tab of the Nexus Mods page and
+add it with **Install a mod**.
+
+To install it by hand, unzip `PSAmity-UE4SS-<version>.zip` so that its `PSAmity`
 folder lands inside the UE4SS `Mods` directory of whichever instance you are
 using:
 

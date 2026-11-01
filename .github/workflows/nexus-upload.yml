@@ -19,13 +19,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Windows builds leave out the embedded Amity zip, which Nexus can flag.
           # Portable standalone zip -> the "standalone" Nexus group (2308165)
           - variant: win_standalone
-            asset: PalStudio-{tag}-windows-standalone.zip
+            asset: PalStudio-{tag}-windows-no-amity-standalone.zip
             group_id: "2308165"
           # MSI installer -> the "installer" Nexus group (2308168)
           - variant: win_msi
-            asset: PalStudio-{tag}-windows.msi
+            asset: PalStudio-{tag}-windows-no-amity.msi
             group_id: "2308168"
           - variant: macos
             asset: PalStudio-{tag}-macos.dmg
@@ -82,4 +83,35 @@ jobs:
           filename: ${{ steps.package.outputs.upload_file }}
           version: ${{ steps.meta.outputs.version }}
           display_name: ${{ steps.meta.outputs.tag }}_${{ matrix.variant }}
+          archive_existing_file: true
+
+  # NEXUS_AMITY_GROUP_ID is the file group of the PS Amity file on the Nexus
+  # page, which has to be created there by hand once.
+  upload-amity:
+    if: vars.NEXUS_AMITY_GROUP_ID != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the Amity package
+        id: asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ github.event.release.tag_name || github.event.inputs.tag }}"
+          gh release download "$tag" \
+            --repo "${{ github.repository }}" \
+            --pattern "PSAmity-UE4SS-*.zip" \
+            --dir .
+          file=$(ls PSAmity-UE4SS-*.zip | head -n 1)
+          version="${file#PSAmity-UE4SS-}"
+          echo "file=$file" >> "$GITHUB_OUTPUT"
+          echo "version=${version%.zip}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to Nexus Mods
+        uses: Nexus-Mods/upload-action@v1.0.0-beta.7
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_group_id: ${{ vars.NEXUS_AMITY_GROUP_ID }}
+          filename: ${{ steps.asset.outputs.file }}
+          version: ${{ steps.asset.outputs.version }}
+          display_name: PSAmity_v${{ steps.asset.outputs.version }}
           archive_existing_file: true

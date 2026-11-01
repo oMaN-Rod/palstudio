@@ -800,6 +800,22 @@ mod tests {
     }
 
     #[test]
+    fn the_amity_package_installs_as_a_ue4ss_mod_in_its_own_folder() {
+        let e = entries(&[
+            "PSAmity/dlls/main.dll",
+            "PSAmity/enabled.txt",
+            "PSAmity/PSAmity.ini",
+            "PSAmity/THIRD_PARTY_NOTICES.md",
+        ]);
+        let m = build_manifest(&input(&e, "PSAmity-UE4SS-0.3.1.zip"));
+        assert_eq!(m.mod_type, ModType::Ue4ss);
+        assert_eq!(
+            route(&m, "PSAmity/dlls/main.dll").rel_path,
+            "PSAmity/dlls/main.dll"
+        );
+    }
+
+    #[test]
     fn paks_get_destination_decision_and_companions_follow() {
         let e = entries(&[
             "Cool_P.pak",

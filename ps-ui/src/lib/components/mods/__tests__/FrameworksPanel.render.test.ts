@@ -101,6 +101,27 @@ describe('FrameworksPanel', () => {
 		expect(screen.getByText('Not installed by PalStudio')).toBeTruthy();
 	});
 
+	it('sends people to Nexus Mods for Amity when this build does not include it', async () => {
+		render(FrameworksPanel, { targetId });
+		const amity = {
+			key: 'amity',
+			name: 'Amity',
+			installed: { present: false, version: null, managed: false, mod_version_id: null },
+			library: [],
+			latest: null,
+			latest_error: { code: 'framework_unavailable', message: 'no bundled Amity package' },
+			update_available: false
+		};
+		state().frameworks = { t1: { frameworks: [amity] } } as never;
+		await tick();
+
+		expect(screen.queryByRole('button', { name: 'Install Amity' })).toBeNull();
+		expect(screen.queryByText('no bundled Amity package')).toBeNull();
+		expect(screen.getByRole('link', { name: 'Get Amity on Nexus Mods' }).getAttribute('href')).toBe(
+			'https://www.nexusmods.com/palworld/mods/1827?tab=files'
+		);
+	});
+
 	it('checks GitHub only on request', async () => {
 		render(FrameworksPanel, { targetId });
 		await fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));

@@ -116,7 +116,8 @@ pub async fn handle_framework_status(
         let mut latest = None;
         let mut latest_error = None;
         let mut latest_version = None;
-        if data.check_latest {
+        // The Amity package is on disk or absent, so asking costs no request.
+        if data.check_latest || *key == FrameworkKey::Amity {
             match services.frameworks.latest(*key, channel, data.dev).await {
                 Ok(release) => {
                     let in_library = library.iter().any(|entry| {
@@ -1249,19 +1250,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn without_check_latest_every_latest_is_null_and_the_source_is_never_called() {
+    async fn without_check_latest_only_the_local_amity_package_is_looked_up() {
         let mut fixture = Fixture::new().await;
         let target_id = fixture.client().await;
 
         let reply = fixture.status(data(&target_id, false)).await;
 
         assert!(reply["error"].is_null(), "{reply:?}");
-        for key in ["ue4ss", "palschema", "amity"] {
+        for key in ["ue4ss", "palschema"] {
             let entry = framework(&reply, key);
             assert!(entry["latest"].is_null(), "{key}: {entry:?}");
             assert!(entry["latest_error"].is_null(), "{key}: {entry:?}");
         }
-        assert_eq!(fixture.fake.calls.load(Ordering::SeqCst), 0);
+        let amity = framework(&reply, "amity");
+        assert_eq!(amity["latest_error"]["code"], "framework_unavailable");
+        assert_eq!(fixture.fake.calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

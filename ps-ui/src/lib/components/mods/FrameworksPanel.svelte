@@ -6,8 +6,12 @@
 	import { MessageType } from '$types';
 	import type { FrameworkEntry } from '$types';
 	import * as m from '$i18n/messages';
+	import { openExternalLink } from '$lib/utils/externalLink';
 	import { frameworkErrorText, frameworkLabels } from './frameworkText';
+	import { modPageUrl } from './nexusSafety';
 	import { displayName } from './modList';
+
+	const PALSTUDIO_NEXUS_MOD_ID = 1827;
 
 	let { targetId }: { targetId: string } = $props();
 
@@ -18,6 +22,11 @@
 	const frameworks = $derived(modsState.frameworks[targetId]?.frameworks ?? []);
 	const busy = $derived(modsState.frameworkBusy[targetId] ?? false);
 	const statusError = $derived(modsState.lastErrorFor(MessageType.FRAMEWORK_STATUS, targetId));
+	const amityFilesUrl = `${modPageUrl(PALSTUDIO_NEXUS_MOD_ID)}?tab=files`;
+
+	function amityNotIncluded(framework: FrameworkEntry): boolean {
+		return framework.key === 'amity' && framework.latest_error?.code === 'framework_unavailable';
+	}
 
 	let selectedVersion = $state<Record<string, string>>({});
 
@@ -121,11 +130,26 @@
 							<span class="text-surface-400">
 								{m.mods_framework_latest({ version: framework.latest.display })}
 							</span>
-						{:else if framework.latest_error}
+						{:else if framework.latest_error && !amityNotIncluded(framework)}
 							<span class="text-surface-500">{framework.latest_error.message}</span>
 						{/if}
 					</div>
 				</div>
+
+				{#if amityNotIncluded(framework) && !framework.installed.present}
+					<p class="text-surface-300 text-xs">
+						{m.mods_framework_amity_separate()}
+						<a
+							href={amityFilesUrl}
+							target="_blank"
+							rel="noreferrer"
+							class="text-primary-400 hover:underline"
+							onclick={(event) => openExternalLink(event, amityFilesUrl)}
+						>
+							{m.mods_framework_amity_get()}
+						</a>
+					</p>
+				{/if}
 
 				{#if framework.library.length > 0}
 					<div class="flex flex-wrap items-center gap-2 text-xs">
@@ -152,7 +176,7 @@
 						<Button size="sm" disabled={busy} onclick={() => install(framework)}>
 							{m.mods_framework_update({ name: framework.name })}
 						</Button>
-					{:else if !framework.installed.present}
+					{:else if !framework.installed.present && !amityNotIncluded(framework)}
 						<Button size="sm" disabled={busy} onclick={() => install(framework)}>
 							{m.mods_framework_install({ name: framework.name })}
 						</Button>
