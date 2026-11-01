@@ -41,7 +41,8 @@
     },
     "windows": {
       "wix": {
-        "version": "1.5.0"
+        "version": "1.5.0",
+        "upgradeCode": "4FAAFBBB-FBB9-5BB1-B6AB-BD0A21E76832"
       }
     }
   }
