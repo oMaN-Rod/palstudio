@@ -668,8 +668,8 @@ entry fits**, so no fetch refuses today:
 
 The cap leaves the largest catalog room to grow by about 40% before it would
 begin refusing. It is not a budget for the whole data set: each call builds
-one table, and the 34 catalogs total roughly 390,000 nodes between them, so
-loading every catalog means 34 separate fetches rather than one.
+one table, and the 33 catalogs total roughly 390,000 nodes between them, so
+loading every catalog means 33 separate fetches rather than one.
 
 ### `save` - read half requires `save.read`
 

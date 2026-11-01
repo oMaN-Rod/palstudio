@@ -17,10 +17,12 @@ Welcome to **PalStudio** — a save file editor for Palworld that lets you modif
 
 ### Docker
 
-For server environments or advanced users, a Docker image is available:
+For server environments or advanced users, build and run the image from the repository:
 
 ```bash
-docker pull ghcr.io/oman-rod/palstudio:latest
+git clone https://github.com/oMaN-Rod/palstudio.git
+cd palstudio
+docker compose up -d --build
 ```
 
 ## Loading a Save File {.toc}
