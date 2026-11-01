@@ -25,6 +25,7 @@
 		<span>{m.landing_partner_label()}</span>
 		<CentrixLogo class="w-24 opacity-80" />
 		<span>{m.landing_partner_offer({ code: CENTRIX.code, discount: CENTRIX.discount })}</span>
+		<span>{m.about_partner_disclosure()}</span>
 	</a>
 	<p class="text-surface-400 mt-6 text-xs">
 		{m.landing_cta_footnote()}

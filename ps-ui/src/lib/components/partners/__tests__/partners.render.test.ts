@@ -45,7 +45,7 @@ describe('CentrixCallout', () => {
 
 	it('discloses the partnership', () => {
 		const { container } = render(CentrixCallout);
-		expect(container.textContent).toContain('PalStudio partner');
+		expect(container.textContent).toContain('supports PalStudio');
 	});
 
 	it('copies the code', async () => {

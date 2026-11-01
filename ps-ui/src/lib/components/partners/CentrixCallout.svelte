@@ -2,6 +2,7 @@
 	import Icon from '$lib/components/ui/icons/Icon.svelte';
 	import { CENTRIX } from '$lib/partners/centrixnodes';
 	import { openExternalLink } from '$lib/utils/externalLink';
+	import * as m from '$i18n/messages';
 	import CentrixLogo from './CentrixLogo.svelte';
 
 	let copied = $state(false);
@@ -17,12 +18,8 @@
 	class="border-primary-500/30 bg-primary-500/10 not-prose flex flex-col gap-3 rounded-md border p-4 text-sm"
 >
 	<CentrixLogo class="w-40" />
-	<p>
-		CentrixNodes runs Palworld servers with DDoS protection and a web control panel, and rents VPS
-		and dedicated machines.
-	</p>
+	<p>{m.about_partner_offer({ code: CENTRIX.code, discount: CENTRIX.discount })}</p>
 	<div class="text-surface-300 flex flex-wrap items-center gap-2">
-		Code
 		<span
 			class="border-primary-500/40 bg-surface-900 text-surface-50 rounded-sm border border-dashed px-2 py-0.5 font-mono font-medium"
 			>{CENTRIX.code}</span
@@ -33,9 +30,8 @@
 			onclick={copyCode}
 		>
 			<Icon icon={copied ? 'tabler:check' : 'tabler:copy'} size={14} />
-			{copied ? 'Copied' : 'Copy code'}
+			{copied ? m.signal_pairing_copied() : m.copy()}
 		</button>
-		<span>takes {CENTRIX.discount}% off Palworld hosting every month.</span>
 	</div>
 	<a
 		href={CENTRIX.url}
@@ -44,10 +40,8 @@
 		class="text-primary-400 hover:text-primary-300 inline-flex w-fit items-center gap-1 font-medium"
 		onclick={(event) => openExternalLink(event, CENTRIX.url)}
 	>
-		View CentrixNodes plans
+		{CENTRIX.name}
 		<Icon icon="tabler:external-link" size={14} />
 	</a>
-	<p class="text-surface-400 text-xs">
-		CentrixNodes is a PalStudio partner, and orders made with this code help fund development.
-	</p>
+	<p class="text-surface-400 text-xs">{m.about_partner_disclosure()}</p>
 </div>
