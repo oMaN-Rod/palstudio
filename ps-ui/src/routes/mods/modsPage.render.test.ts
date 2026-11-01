@@ -47,11 +47,17 @@ const {
 		},
 		nexusResets,
 		modal: { showModal: vi.fn() },
-		env: { desktop: 'true' },
+		env: { desktop: 'true', nexus: true },
 		listProps: [] as Record<string, unknown>[],
 		panelProps: [] as Record<string, unknown>[]
 	};
 });
+
+vi.mock('$lib/components/mods/nexusAvailability', () => ({
+	get NEXUS_ENABLED() {
+		return env.nexus;
+	}
+}));
 
 vi.mock('$env/static/public', () => ({
 	get PUBLIC_DESKTOP_MODE() {
@@ -161,6 +167,7 @@ beforeEach(() => {
 	platform.web = false;
 	remote.active = false;
 	env.desktop = 'true';
+	env.nexus = true;
 	state().reset();
 });
 
@@ -208,6 +215,13 @@ describe('/mods', () => {
 		render(ModsPage);
 
 		expect(nexus.subscribeLinks).toHaveBeenCalledTimes(1);
+	});
+
+	it('does not subscribe to nxm links while Nexus Mods is off', () => {
+		env.nexus = false;
+		render(ModsPage);
+
+		expect(nexus.subscribeLinks).not.toHaveBeenCalled();
 	});
 
 	it('does not subscribe to nxm links outside the desktop app', () => {

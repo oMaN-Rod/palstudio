@@ -13,6 +13,7 @@
 	import { modsViewMode, type ModsView } from './modsView.svelte';
 	import { MessageType } from '$types';
 	import * as m from '$i18n/messages';
+	import { NEXUS_ENABLED } from './nexusAvailability';
 	import { nexusErrorText } from './nexusText';
 	import { modTypeLabel as typeLabel } from './modLabels';
 	import { displayName, filterMods, inUseProfileIds, sortMods, type ModSort } from './modList';
@@ -26,6 +27,7 @@
 	const modal = getModalState();
 	const remoteMode = getRemoteMode();
 	const mode = $derived({ desktop: PUBLIC_DESKTOP_MODE === 'true', remote: remoteMode.active });
+	const updatesShown = $derived(NEXUS_ENABLED && mode.desktop && !mode.remote);
 
 	function openInstall() {
 		modal.showModal<boolean>(InstallModal as unknown as Component, { targetId });
@@ -83,7 +85,7 @@
 		targetId;
 		modsState.resets;
 		untrack(() => {
-			if (mode.desktop && !mode.remote) nexusState.checkUpdates(targetId);
+			if (updatesShown) nexusState.checkUpdates(targetId);
 		});
 	});
 
@@ -133,7 +135,7 @@
 			{line}
 		</p>
 	{/each}
-	{#if mode.desktop && !mode.remote && updateCheckError}
+	{#if updatesShown && updateCheckError}
 		<p class="text-error-400 flex items-center gap-2 text-sm" role="alert">
 			<Icon icon="tabler:alert-circle" size={14} class="shrink-0" />
 			{nexusErrorText(updateCheckError)}
@@ -163,7 +165,7 @@
 					inputClass="w-full"
 				/>
 			</div>
-			{#if mode.desktop && !mode.remote}
+			{#if updatesShown}
 				<Button
 					variant="ghost"
 					size="sm"

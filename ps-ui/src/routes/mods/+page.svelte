@@ -8,6 +8,7 @@
 	import { Card } from '$components/ui';
 	import { TargetList, TargetPanel } from '$components/mods';
 	import NxmLinkModal from '$lib/components/mods/NxmLinkModal.svelte';
+	import { NEXUS_ENABLED } from '$lib/components/mods/nexusAvailability';
 	import { getModalState, getModsState, getNexusState, getServerState } from '$states';
 	import { getRemoteMode } from '$lib/signal/remoteMode.svelte';
 	import { isWebBuild } from '$lib/utils/platform';
@@ -34,7 +35,9 @@
 			serverState.loadServers();
 			modsState.subscribeVerification();
 			if (nexusState.shouldForget(resets)) nexusState.forgetInFlight();
-			if (PUBLIC_DESKTOP_MODE === 'true' && !remoteMode.active) nexusState.subscribeLinks();
+			if (NEXUS_ENABLED && PUBLIC_DESKTOP_MODE === 'true' && !remoteMode.active) {
+				nexusState.subscribeLinks();
+			}
 		});
 	});
 
