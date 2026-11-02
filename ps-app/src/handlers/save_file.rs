@@ -880,7 +880,7 @@ const BACKUP_ROOT_FILES: [&str; 4] = [
 /// suffix on collision. `backup_base` is a parameter, not a constant, so tests
 /// can point it at a `TempDir` instead of the real backups root. A missing
 /// `save_dir` reports "skipping backup" rather than failing.
-fn backup_save_directory(
+pub(crate) fn backup_save_directory(
     save_dir: &Path,
     backup_base: &Path,
     progress: &ProgressSink,
@@ -937,9 +937,12 @@ fn backup_save_directory(
 /// and edited; a no-op when GPS was never opened (`gps_sav_bytes` is `None`).
 ///
 /// GPS lives beside the world directory, NOT inside it, so the world-dir
-/// backup does not cover it — a sibling `.backup` copy is taken first. Repeated
-/// saves overwrite that copy, so it protects the last state, not the original.
-fn write_gps_if_loaded(session: &SaveSession, progress: &ProgressSink) -> Result<(), HandlerError> {
+/// backup does not cover it — it gets its own copy under `backup_base` first.
+fn write_gps_if_loaded(
+    session: &SaveSession,
+    backup_base: &Path,
+    progress: &ProgressSink,
+) -> Result<(), HandlerError> {
     let Some(gps_bytes) = session.gps_sav_bytes()? else {
         return Ok(());
     };
@@ -948,10 +951,22 @@ fn write_gps_if_loaded(session: &SaveSession, progress: &ProgressSink) -> Result
     };
     progress("Writing Global Pal Storage file");
     if gps_path.exists() {
-        std::fs::copy(gps_path, format!("{}.backup", gps_path.display()))
-            .map_err(CoreError::Io)?;
+        backup_file(gps_path, backup_base).map_err(CoreError::Io)?;
     }
     std::fs::write(gps_path, &gps_bytes).map_err(CoreError::Io)?;
+    Ok(())
+}
+
+/// Copies one file to `{backup_base}/{stem}_{%Y-%m-%d-%H-%M-%S-%3f}.{extension}`.
+fn backup_file(file: &Path, backup_base: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(backup_base)?;
+    let stem = file.file_stem().unwrap_or_default().to_string_lossy();
+    let extension = file.extension().unwrap_or_default().to_string_lossy();
+    let timestamp = chrono::Local::now().format("%Y-%m-%d-%H-%M-%S-%3f");
+    std::fs::copy(
+        file,
+        backup_base.join(format!("{stem}_{timestamp}.{extension}")),
+    )?;
     Ok(())
 }
 
@@ -1007,13 +1022,13 @@ fn write_steam_modded_save(
             None => {}
         }
     }
-    write_gps_if_loaded(session, progress)?;
+    write_gps_if_loaded(session, backup_base, progress)?;
     Ok(())
 }
 
 /// Deliberately does not back up first, unlike `write_steam_modded_save`: the
 /// caller (`handlers::tools::handle_transfer_player`) already backs up via
-/// `copy_dir_ignoring` before calling this.
+/// `backup_save_directory` before calling this.
 pub(crate) fn write_transfer_target_save(
     session: &SaveSession,
     save_info: &ps_core::session::TransferSaveInfo,
@@ -1051,7 +1066,7 @@ pub(crate) fn write_transfer_target_save(
 
 /// Backup root for Steam saves, anchored to the app root (`backups/steam`).
 fn steam_backup_base() -> std::path::PathBuf {
-    ps_core::paths::app_root().join("backups").join("steam")
+    ps_core::gamepass::store::backups_root().join("steam")
 }
 
 /// `data` must stay `Option<String>`: the frontend sends `null` for Steam
@@ -1380,7 +1395,11 @@ fn unlock_map_on_disk(data: &UnlockMapData) -> Result<(), String> {
     if !is_local_data {
         return Err("Please select the LocalData.sav file.".to_string());
     }
-    std::fs::copy(file_path, format!("{path}.backup")).map_err(|error| error.to_string())?;
+    backup_file(
+        file_path,
+        &ps_core::gamepass::store::backups_root().join("local_data"),
+    )
+    .map_err(|error| error.to_string())?;
     let local_data = std::fs::read(file_path).map_err(|error| error.to_string())?;
     let outcome =
         ps_core::localdata::unlock_world_map(&local_data).map_err(|error| error.to_string())?;
@@ -1985,6 +2004,62 @@ mod tests {
 
         assert!(guest_dps.is_file());
         assert!(!host_dps.exists());
+    }
+
+    #[test]
+    fn write_steam_modded_save_backs_up_gps_only_under_the_backup_base() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let save_dir = temp_dir.path().join("world");
+        copy_dir_recursive(&fixture_world1_dir(), &save_dir).unwrap();
+        let gps_path = temp_dir.path().join("GlobalPalStorage.sav");
+        let gps_bytes = std::fs::read(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../tests/fixtures/saves/GlobalPalStorage.sav"),
+        )
+        .unwrap();
+        std::fs::write(&gps_path, &gps_bytes).unwrap();
+
+        let level_path = save_dir.join("Level.sav");
+        let mut session = SaveSession::load(
+            SaveKind::Steam {
+                level_path: level_path.clone(),
+            },
+            level_path.to_string_lossy().into_owned(),
+            "steam",
+            &std::fs::read(&level_path).unwrap(),
+            Some(&std::fs::read(save_dir.join("LevelMeta.sav")).unwrap()),
+            None,
+            BTreeMap::new(),
+            Some(gps_path.clone()),
+            true,
+            &ps_core::progress::null_progress(),
+        )
+        .unwrap();
+        session.gps.save = Some(ps_core::savio::read_sav_bytes(&gps_bytes).unwrap());
+
+        let backup_base = temp_dir.path().join("backups/steam");
+        write_steam_modded_save(
+            &session,
+            &level_path,
+            &backup_base,
+            &ps_core::progress::null_progress(),
+        )
+        .unwrap();
+
+        let beside_gps: Vec<String> = std::fs::read_dir(temp_dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with("GlobalPalStorage"))
+            .collect();
+        assert_eq!(beside_gps, ["GlobalPalStorage.sav"]);
+
+        let backups: Vec<PathBuf> = std::fs::read_dir(&backup_base)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.is_file())
+            .collect();
+        assert_eq!(backups.len(), 1);
+        assert_eq!(std::fs::read(&backups[0]).unwrap(), gps_bytes);
     }
 
     fn fixture_world1_dir() -> PathBuf {

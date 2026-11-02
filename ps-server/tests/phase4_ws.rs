@@ -513,6 +513,10 @@ async fn unlock_map_zeroes_mask_and_backs_up() {
     let local_data_path = temp.path().join("LocalData.sav");
     std::fs::write(&local_data_path, &grafted_local_data).unwrap();
 
+    let backups_root = temp.path().join("backups");
+    let _env_guard =
+        common::GamepassEnvGuard::acquire(&[("PS_BACKUPS_ROOT", backups_root.clone())]).await;
+
     let server = common::start_test_server().await;
     let mut ws = common::connect(&server).await;
 
@@ -532,10 +536,14 @@ async fn unlock_map_zeroes_mask_and_backs_up() {
         "Map unlocked successfully! Restart the game to see changes."
     );
 
-    let backup_path = temp.path().join("LocalData.sav.backup");
-    assert!(backup_path.exists());
+    assert!(!temp.path().join("LocalData.sav.backup").exists());
+    let backups: Vec<_> = std::fs::read_dir(backups_root.join("local_data"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(backups.len(), 1);
     assert_eq!(
-        mask_bytes(&std::fs::read(&backup_path).unwrap()),
+        mask_bytes(&std::fs::read(&backups[0]).unwrap()),
         original_mask
     );
 

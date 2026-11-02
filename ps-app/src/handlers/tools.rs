@@ -283,42 +283,18 @@ pub async fn handle_get_source_players(ctx: &mut HandlerCtx<'_>) -> Result<(), H
     Ok(())
 }
 
-/// Skips any entry literally named `ignore_name`, which keeps a backup dir out
-/// of its own backup.
-fn copy_dir_ignoring(
-    from: &std::path::Path,
-    to: &std::path::Path,
-    ignore_name: &str,
-) -> Result<(), std::io::Error> {
-    std::fs::create_dir_all(to)?;
-    for dir_entry in std::fs::read_dir(from)? {
-        let dir_entry = dir_entry?;
-        let name = dir_entry.file_name();
-        if name.to_string_lossy() == ignore_name {
-            continue;
-        }
-        let destination = to.join(&name);
-        if dir_entry.file_type()?.is_dir() {
-            copy_dir_ignoring(&dir_entry.path(), &destination, ignore_name)?;
-        } else {
-            std::fs::copy(dir_entry.path(), destination)?;
-        }
-    }
-    Ok(())
-}
-
-/// The blocking half of `handle_transfer_player`'s auto-save: the recursive
-/// backup copy (taken once, never over an existing backup) and the target's
-/// save re-serialization + write-back. Split out so it can run on the blocking
-/// pool via `run_blocking`.
+/// The blocking half of `handle_transfer_player`'s auto-save: the backup copy
+/// and the target's save re-serialization + write-back. Split out so it can run
+/// on the blocking pool via `run_blocking`.
 fn backup_and_write_transfer_target(
     target: &TransferTarget,
-    backup_path: &std::path::Path,
+    backup_base: &std::path::Path,
 ) -> Result<(), HandlerError> {
-    if !backup_path.exists() {
-        copy_dir_ignoring(&target.save_info.save_dir, backup_path, "backups")
-            .map_err(|error| HandlerError::Other(error.to_string()))?;
-    }
+    save_file::backup_save_directory(
+        &target.save_info.save_dir,
+        backup_base,
+        &ps_core::progress::null_progress(),
+    )?;
     save_file::write_transfer_target_save(&target.session, &target.save_info)
 }
 
@@ -392,22 +368,9 @@ pub async fn handle_transfer_player(
             MessageType::ProgressMessage,
             &"Saving modified target save to disk...",
         );
-        let target = ctx
-            .session
-            .transfer_target
-            .as_ref()
-            .expect("checked Some above at the top of this handler");
-        // Local time, matching `backup_save_directory`'s naming convention so
-        // both backup roots sort together for the user.
-        let timestamp = chrono::Local::now().format("%Y-%m-%d-%H-%M-%S").to_string();
-        let backup_path = target
-            .save_info
-            .save_dir
-            .join("backups")
-            .join("transfer")
-            .join(format!("backup_{timestamp}"));
+        let backup_base = ps_core::gamepass::store::backups_root().join("transfer");
 
-        // Recursive backup copy + save re-serialization are blocking — keep
+        // Backup copy + save re-serialization are blocking — keep
         // them off the async workers. The target cannot cross into the
         // blocking closure as a borrow, so it is taken out and restored
         // around it; the connection's per-session guard is held for this
@@ -418,7 +381,7 @@ pub async fn handle_transfer_player(
             .take()
             .expect("checked Some above");
         let (write_result, target) = crate::blocking::run_blocking(move || {
-            let result = backup_and_write_transfer_target(&target_slot, &backup_path);
+            let result = backup_and_write_transfer_target(&target_slot, &backup_base);
             (result, target_slot)
         })
         .await;
@@ -534,4 +497,79 @@ pub async fn handle_get_raw_data(
         .unwrap_or_else(|| serde_json::json!({}));
     ctx.emitter.emit(MessageType::GetRawData, &payload);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use std::path::Path;
+
+    fn copy_dir(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let destination = to.join(entry.file_name());
+            if entry.path().is_dir() {
+                copy_dir(&entry.path(), &destination);
+            } else {
+                std::fs::copy(entry.path(), destination).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn transfer_backup_lands_in_the_backup_base_and_leaves_game_backups_alone() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let save_dir = temp_dir.path().join("world");
+        copy_dir(
+            &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/saves/world1"),
+            &save_dir,
+        );
+        let game_backup = save_dir.join("backup").join("world").join("Level.sav");
+        std::fs::create_dir_all(game_backup.parent().unwrap()).unwrap();
+        std::fs::write(&game_backup, b"game backup").unwrap();
+
+        let level_sav = save_dir.join("Level.sav");
+        let level_bytes = std::fs::read(&level_sav).unwrap();
+        let level_meta = save_dir.join("LevelMeta.sav");
+        let session = SaveSession::load(
+            SaveKind::Steam {
+                level_path: level_sav.clone(),
+            },
+            level_sav.to_string_lossy().into_owned(),
+            "steam",
+            &level_bytes,
+            Some(&std::fs::read(&level_meta).unwrap()),
+            None,
+            BTreeMap::new(),
+            None,
+            true,
+            &ps_core::progress::null_progress(),
+        )
+        .unwrap();
+        let target = TransferTarget {
+            session,
+            save_info: TransferSaveInfo {
+                level_sav,
+                level_meta: Some(level_meta),
+                players_dir: save_dir.join("Players"),
+                save_dir: save_dir.clone(),
+            },
+        };
+
+        let backup_base = temp_dir.path().join("our_backups");
+        backup_and_write_transfer_target(&target, &backup_base).unwrap();
+
+        assert!(!save_dir.join("backups").exists());
+        assert_eq!(std::fs::read(&game_backup).unwrap(), b"game backup");
+
+        let backups: Vec<PathBuf> = std::fs::read_dir(&backup_base)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        assert_eq!(backups.len(), 1);
+        assert_eq!(std::fs::read(backups[0].join("Level.sav")).unwrap(), level_bytes);
+        assert!(!backups[0].join("backup").exists());
+    }
 }
