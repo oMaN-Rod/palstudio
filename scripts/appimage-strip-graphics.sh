@@ -60,6 +60,9 @@ if [ -n "$leftovers" ]; then
   exit 1
 fi
 
+# --appimage-extract creates directories as 0700, which appimagetool rejects.
+chmod -R a+rX squashfs-root
+
 # extract-and-run avoids the FUSE requirement.
 tool_dir="$(mktemp -d)"
 appimagetool="$tool_dir/appimagetool-x86_64.AppImage"
