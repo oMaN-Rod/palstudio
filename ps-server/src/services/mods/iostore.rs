@@ -178,6 +178,9 @@ impl RetocConverter {
                 .map_err(|error| ConvertError::ToolUnavailable(error.to_string()))?;
             progress(total, content_length);
         }
+        file.flush()
+            .await
+            .map_err(|error| ConvertError::ToolUnavailable(error.to_string()))?;
         Ok(format!("{:x}", hasher.finalize()))
     }
 }

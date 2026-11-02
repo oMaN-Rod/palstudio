@@ -469,6 +469,7 @@ impl ReleaseSources {
             file.write_all(&chunk).await?;
             progress(total, content_length);
         }
+        file.flush().await?;
         Ok(())
     }
 }
