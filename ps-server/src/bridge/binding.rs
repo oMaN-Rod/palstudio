@@ -207,15 +207,17 @@ mod tests {
     #[tokio::test]
     async fn auto_id_resolves_through_the_process_executable() {
         let db = test_driver().await;
-        ps_db::mod_targets::upsert(&db, &new_target("palworld", "client", "C:/Games/Palworld"))
-            .await
-            .unwrap();
+        let root = base_dir().join("Games/Palworld");
+        ps_db::mod_targets::upsert(
+            &db,
+            &new_target("palworld", "client", &root.to_string_lossy()),
+        )
+        .await
+        .unwrap();
 
         let exe_of = |pid: u32| {
             assert_eq!(pid, 4242);
-            Some(PathBuf::from(
-                "C:/Games/Palworld/Pal/Binaries/Win64/Palworld-Win64-Shipping.exe",
-            ))
+            Some(root.join("Pal/Binaries/Win64/Palworld-Win64-Shipping.exe"))
         };
         let found = bound_target_id(&db, "auto:4242", exe_of).await.unwrap();
         assert_eq!(found.as_deref(), Some("palworld"));
