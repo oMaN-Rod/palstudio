@@ -711,7 +711,8 @@ async fn a_burst_of_rapid_redials_does_not_deadlock_the_listener() {
         broker.post(DEVICE, blob);
     }
 
-    tokio::time::timeout(Duration::from_secs(30), async {
+    // Working through the burst alone takes about 30s on four cores.
+    tokio::time::timeout(Duration::from_secs(120), async {
         let connected =
             connect_a_device(&broker, from_host_rx, &server, DEVICE, &DEVICE_SECRET).await;
         connected.guest.close().await.ok();
