@@ -134,6 +134,7 @@ const IGNORED_PATHS: &[(&str, &str)] = &[
     // Nothing else in the servers corpus is masked — every other handler there
     // answers deterministically against a fresh, empty DB.
     ("detect_workshop_dir", "/data/workshop_dir"), // machine-dependent Steam install location
+    ("get_settings", "/data/save_dir"), // defaults to a per-user, per-OS path
 ];
 
 /// The UPS list frames carry an ARRAY of records, so their per-element
@@ -211,6 +212,35 @@ fn drop_post_fixture_pal_fields(value: &mut Value) {
         Value::Array(items) => {
             for item in items.iter_mut() {
                 drop_post_fixture_pal_fields(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Where the corpus's saves lived on the machine that recorded it.
+const RECORDED_SAVES_ROOT: &str =
+    r"D:\project\unreal-palworld-save-tools\palworld-save-pal\tests\fixtures\saves";
+
+/// Points every recorded save path at `saves_root`, in place, so a request loads
+/// the committed save and its echoed path matches on any machine.
+fn relocate_recorded_save_paths(value: &mut Value, saves_root: &std::path::Path) {
+    match value {
+        Value::String(text) => {
+            if let Some(relative) = text.strip_prefix(RECORDED_SAVES_ROOT) {
+                let mut relocated = saves_root.to_path_buf();
+                relocated.extend(relative.split('\\').filter(|part| !part.is_empty()));
+                *text = relocated.to_string_lossy().into_owned();
+            }
+        }
+        Value::Object(object) => {
+            for child in object.values_mut() {
+                relocate_recorded_save_paths(child, saves_root);
+            }
+        }
+        Value::Array(items) => {
+            for item in items.iter_mut() {
+                relocate_recorded_save_paths(item, saves_root);
             }
         }
         _ => {}
@@ -574,6 +604,13 @@ async fn replay_all_fixtures(fixtures_root: &std::path::Path) -> usize {
     .await
     .unwrap();
 
+    let saves_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("ps-server sits inside the workspace")
+        .join("tests")
+        .join("fixtures")
+        .join("saves");
+
     let mut fixtures_replayed = 0usize;
     for corpus_dir in corpus_dirs {
         let mut fixture_paths: Vec<PathBuf> = std::fs::read_dir(&corpus_dir)
@@ -589,8 +626,9 @@ async fn replay_all_fixtures(fixtures_root: &std::path::Path) -> usize {
             .unwrap();
 
         for fixture_path in fixture_paths {
-            let fixture: Value =
+            let mut fixture: Value =
                 serde_json::from_str(&std::fs::read_to_string(&fixture_path).unwrap()).unwrap();
+            relocate_recorded_save_paths(&mut fixture, &saves_root);
             let request_text = fixture["request"].to_string();
             let request_type = fixture["request"]["type"]
                 .as_str()
@@ -965,6 +1003,22 @@ fn compare_raw_data_structural_errs_when_data_is_not_an_object() {
         compare_raw_data_structural("fixtures/tools/005_get_raw_data.json", &expected, &actual)
             .expect_err("a non-object actual data must be reported");
     assert!(error.contains("not a JSON object"), "got: {error}");
+}
+
+#[test]
+fn relocate_recorded_save_paths_rewrites_only_the_recorded_root() {
+    let recorded = format!(r"{RECORDED_SAVES_ROOT}\world1\Level.sav");
+    let mut value = serde_json::json!({
+        "data": {"path": recorded, "levels": [recorded], "name": r"C:\other\Level.sav"}
+    });
+    let root = PathBuf::from("saves");
+    relocate_recorded_save_paths(&mut value, &root);
+
+    let expected = root.join("world1").join("Level.sav");
+    let expected = expected.to_string_lossy();
+    assert_eq!(value["data"]["path"], *expected);
+    assert_eq!(value["data"]["levels"][0], *expected);
+    assert_eq!(value["data"]["name"], r"C:\other\Level.sav");
 }
 
 #[test]
