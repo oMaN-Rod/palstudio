@@ -2,7 +2,17 @@ name: CI
 
 on:
   push:
+    paths-ignore:
+      - "README.md"
+      - "THIRD_PARTY_NOTICES.md"
+      - "LICENSE"
+      - "docs/**"
   pull_request:
+    paths-ignore:
+      - "README.md"
+      - "THIRD_PARTY_NOTICES.md"
+      - "LICENSE"
+      - "docs/**"
 
 # Superseded PR runs are cancelled; main-branch pushes stay serialized.
 concurrency:
@@ -12,6 +22,8 @@ concurrency:
 env:
   # rust-cache's recommendation: smaller cache snapshots, faster saves.
   CARGO_INCREMENTAL: 0
+  # Each test binary links its own debug info; panics still report line numbers.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
   test:
@@ -35,6 +47,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "v0-ci"
+          cache-on-failure: true
 
       - name: ps-app stays transport-free
         shell: bash
@@ -66,8 +79,16 @@ jobs:
       - name: Stub the desktop resource directory
         run: mkdir -p ui_build && touch ui_build/.gitkeep
 
-      - name: Test workspace
-        run: cargo test --workspace --no-fail-fast
+      # The unit tests finish in minutes, so their failures surface before the
+      # much slower integration suites start.
+      - name: Unit tests
+        run: cargo test --workspace --lib --no-fail-fast
+
+      - name: Integration tests
+        run: cargo test --workspace --no-fail-fast --bins --examples --test '*'
+
+      - name: Doc tests
+        run: cargo test --workspace --doc --no-fail-fast
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

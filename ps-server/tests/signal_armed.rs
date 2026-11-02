@@ -460,7 +460,7 @@ async fn pairing_label(server: &common::TestServer) -> String {
 }
 
 async fn wait_for_pairing(server: &common::TestServer, label: &str) {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
     while pairing_label(server).await != label {
         assert!(
             tokio::time::Instant::now() < deadline,
@@ -711,8 +711,9 @@ async fn a_burst_of_rapid_redials_does_not_deadlock_the_listener() {
         broker.post(DEVICE, blob);
     }
 
-    // Working through the burst alone takes about 30s on four cores.
-    tokio::time::timeout(Duration::from_secs(120), async {
+    // The listener must work through the whole burst before it can pair, which
+    // can take over 30s on CI, so this outlasts `wait_for_pairing`.
+    tokio::time::timeout(Duration::from_secs(180), async {
         let connected =
             connect_a_device(&broker, from_host_rx, &server, DEVICE, &DEVICE_SECRET).await;
         connected.guest.close().await.ok();
