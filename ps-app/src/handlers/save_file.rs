@@ -957,22 +957,20 @@ fn write_gps_if_loaded(session: &SaveSession, progress: &ProgressSink) -> Result
 
 /// Write half of `save_modded_steam_save`, split out so the backup+overwrite
 /// path is testable against a `TempDir` without touching the user's real
-/// save_dir or the process CWD. `Level.sav` goes to `level_path` (which may
-/// differ from `save_dir`); `LevelMeta.sav` and the players go under `save_dir`.
+/// saves or the process CWD. Every file goes to the world `level_path` sits in,
+/// never to `settings.save_dir`, which can name a different world.
 fn write_steam_modded_save(
     session: &SaveSession,
     level_path: &Path,
-    save_dir: &Path,
     backup_base: &Path,
     progress: &ProgressSink,
 ) -> Result<(), HandlerError> {
+    let save_dir = level_path.parent().unwrap_or_else(|| Path::new(""));
     backup_save_directory(save_dir, backup_base, progress)?;
 
     progress("Writing new save file... 🚀");
     let level_sav_bytes = session.level_sav_bytes()?;
-    if let Some(parent) = level_path.parent() {
-        std::fs::create_dir_all(parent).map_err(CoreError::Io)?;
-    }
+    std::fs::create_dir_all(save_dir).map_err(CoreError::Io)?;
     std::fs::write(level_path, &level_sav_bytes).map_err(CoreError::Io)?;
 
     progress("Writing Level Meta file");
@@ -1073,7 +1071,6 @@ pub async fn handle_save_modded_save(
 }
 
 async fn save_modded_steam_save(ctx: &mut HandlerCtx<'_>) -> Result<(), HandlerError> {
-    let save_dir = ps_db::settings::get_settings(&*ctx.app.driver).await?.save_dir;
     let progress = ctx.emitter.progress_sink();
 
     let level_path = match ctx.session.save.as_ref().map(|session| &session.kind) {
@@ -1101,7 +1098,6 @@ async fn save_modded_steam_save(ctx: &mut HandlerCtx<'_>) -> Result<(), HandlerE
         let result = write_steam_modded_save(
             &session_slot,
             &level_path,
-            Path::new(&save_dir),
             &backup_base,
             &progress,
         );
@@ -1872,9 +1868,8 @@ mod tests {
     }
 
     /// Hermetic full write-path test: the `world1` fixture is copied into a
-    /// `TempDir` and BOTH the session level_path and save_dir point at that
-    /// copy, so nothing can touch the user's real save_dir, the committed
-    /// fixtures, or the process CWD.
+    /// `TempDir` and the session level_path points at that copy, so nothing can
+    /// touch the user's real saves, the committed fixtures, or the process CWD.
     #[test]
     fn write_steam_modded_save_backs_up_and_writes_into_a_temp_dir() {
         let fixture = fixture_world1_dir();
@@ -1911,7 +1906,6 @@ mod tests {
         write_steam_modded_save(
             &session,
             &level_path,
-            &save_dir,
             &backup_base,
             &ps_core::progress::null_progress(),
         )
@@ -1984,7 +1978,6 @@ mod tests {
         write_steam_modded_save(
             &session,
             &level_path,
-            &save_dir,
             &temp_dir.path().join("backups/steam"),
             &ps_core::progress::null_progress(),
         )

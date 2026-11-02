@@ -1,7 +1,6 @@
 //! An inventory edit must survive `update_save_file` -> `save_modded_save` ->
 //! a fresh `select_save` from disk. Runs against a temp copy of the committed
-//! `world1` fixture, with `settings.save_dir` pointed at that copy so the write
-//! lands there rather than in the machine's real Steam save directory.
+//! `world1` fixture.
 
 mod common;
 
@@ -77,17 +76,7 @@ async fn item_edit_survives_update_save_modded_save_and_reload() {
     );
     let level_sav_path = world1_copy.join("Level.sav").to_string_lossy().into_owned();
 
-    // settings.save_dir decides where the Steam write path puts LevelMeta.sav
-    // and Players/*.sav; point it at the temp copy, never the machine's real
-    // default save dir.
     let server = common::start_test_server().await;
-    let db_path = server._temp_dir.path().join("ps-rs.db");
-    let db = ps_db::open(&db_path).await.expect("open test db");
-    let driver = ps_db::SqlxSqliteDriver::new(db);
-    ps_db::settings::update_save_dir(&driver, &world1_copy.to_string_lossy())
-        .await
-        .expect("set save_dir to temp world1 copy");
-
     let mut socket = common::connect(&server).await;
 
     select_save(&mut socket, &level_sav_path).await;
@@ -167,6 +156,51 @@ async fn item_edit_survives_update_save_modded_save_and_reload() {
     server.handle.shutdown().await;
 }
 
+#[tokio::test]
+async fn save_leaves_a_save_dir_naming_another_world_untouched() {
+    let temp_root = tempfile::tempdir().unwrap();
+    let world1_copy = temp_root.path().join("world1");
+    copy_dir_recursive(
+        &repo_root().join("tests/fixtures/saves/world1"),
+        &world1_copy,
+    );
+    let level_sav_path = world1_copy.join("Level.sav").to_string_lossy().into_owned();
+    let other_world = temp_root.path().join("other_world");
+    std::fs::create_dir(&other_world).unwrap();
+
+    let server = common::start_test_server().await;
+    let db = ps_db::open(&server._temp_dir.path().join("ps-rs.db"))
+        .await
+        .expect("open test db");
+    ps_db::settings::update_save_dir(
+        &ps_db::SqlxSqliteDriver::new(db),
+        &other_world.to_string_lossy(),
+    )
+    .await
+    .expect("point save_dir at the other world");
+
+    let mut socket = common::connect(&server).await;
+    select_save(&mut socket, &level_sav_path).await;
+    load_player(&mut socket, WORLD1_PLAYER_O).await;
+
+    let player_sav = world1_copy
+        .join("Players")
+        .join("8C2F1930000000000000000000000000.sav");
+    std::fs::write(&player_sav, b"STALE").unwrap();
+
+    common::send_json(
+        &mut socket,
+        json!({"type": "save_modded_save", "data": null}),
+    )
+    .await;
+    recv_until(&mut socket, "save_modded_save").await;
+
+    assert_eq!(std::fs::read_dir(&other_world).unwrap().count(), 0);
+    assert_ne!(std::fs::read(&player_sav).unwrap(), b"STALE");
+
+    server.handle.shutdown().await;
+}
+
 /// GUID for WatchTower_11 (`BP_LevelObject_UnlockMapPoint_C`) from
 /// `data/json/fast_travel_points.json`. Unlocking it writes into the save's
 /// `FastTravelPointUnlockFlag` map; this test proves that flag survives a
@@ -184,13 +218,6 @@ async fn watchtower_unlock_survives_update_save_modded_save_and_reload() {
     let level_sav_path = world1_copy.join("Level.sav").to_string_lossy().into_owned();
 
     let server = common::start_test_server().await;
-    let db_path = server._temp_dir.path().join("ps-rs.db");
-    let db = ps_db::open(&db_path).await.expect("open test db");
-    let driver = ps_db::SqlxSqliteDriver::new(db);
-    ps_db::settings::update_save_dir(&driver, &world1_copy.to_string_lossy())
-        .await
-        .expect("set save_dir to temp world1 copy");
-
     let mut socket = common::connect(&server).await;
 
     select_save(&mut socket, &level_sav_path).await;
