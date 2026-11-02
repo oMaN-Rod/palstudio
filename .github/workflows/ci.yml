@@ -121,4 +121,4 @@ jobs:
 
       - name: Desktop web build succeeds
         working-directory: ps-ui
-        run: bun run build
+        run: bun run build:desktop
