@@ -1,0 +1,317 @@
+<script lang="ts">
+	import Icon from '$lib/components/ui/icons/Icon.svelte';
+	import { getAppState, getModalState } from '$states';
+	import { buildingsData, itemsData, technologiesData } from '$lib/data';
+	import { ASSET_DATA_PATH } from '$lib/constants';
+	import { assetLoader } from '$utils';
+	import { NumberInputModal } from '$components/modals';
+	import { Button, Tooltip } from '$components/ui';
+	import { EntryState, type Technology } from '$types';
+	import { staticIcons } from '$types/icons';
+	import * as m from '$i18n/messages';
+
+	const appState = getAppState();
+	const modal = getModalState();
+
+	const techPointIcon = assetLoader.loadImage(`${ASSET_DATA_PATH}/img/t_icon_tech_point.webp`);
+	const ancientTechPointIcon = assetLoader.loadImage(
+		`${ASSET_DATA_PATH}/img/t_icon_ancient_tech_point.webp`
+	);
+
+	const technologiesOrder = Object.entries(technologiesData.technologies).reduce(
+		(acc, [techID, techData]) => {
+			const levelCap = techData.details.level_cap;
+			if (!acc[levelCap]) {
+				acc[levelCap] = {
+					regular: [],
+					ancient: null
+				};
+			}
+
+			if (techData.details.is_boss_technology) {
+				acc[levelCap].ancient = techID;
+			} else {
+				acc[levelCap].regular.push(techID);
+			}
+			return acc;
+		},
+		{} as Record<number, { regular: string[]; ancient: string | null }>
+	);
+
+	function toggleTechnology(techID: string) {
+		if (!appState.selectedPlayer) return;
+		if (appState.selectedPlayer.technologies.includes(techID)) {
+			appState.selectedPlayer.technologies = appState.selectedPlayer.technologies.filter(
+				(id) => id !== techID
+			);
+		} else {
+			appState.selectedPlayer.technologies.push(techID);
+		}
+		appState.selectedPlayer.state = EntryState.MODIFIED;
+	}
+
+	async function getImageForTechnology(techID: string): Promise<string | undefined> {
+		let techIcon = technologiesData.getByKey(techID)?.details.icon;
+		if (!techIcon) {
+			return staticIcons.unknownIcon;
+		}
+		return assetLoader.loadImage(`${ASSET_DATA_PATH}/img/${techIcon}.webp`);
+	}
+
+	function resetAll() {
+		if (!appState.selectedPlayer) return;
+		appState.selectedPlayer.technologies = [];
+		appState.selectedPlayer.state = EntryState.MODIFIED;
+	}
+
+	function unlockAll() {
+		if (!appState.selectedPlayer) return;
+		appState.selectedPlayer.technologies = Object.keys(technologiesData.technologies);
+		appState.selectedPlayer.state = EntryState.MODIFIED;
+	}
+
+	async function handleEditTechPoints(type: 'tech' | 'ancient') {
+		if (!appState.selectedPlayer) return;
+
+		const title = type === 'tech' ? m.technology_points() : m.ancient_technology_points();
+		// @ts-ignore
+		const result = await modal.showModal<number>(NumberInputModal, {
+			title: title,
+			value:
+				type === 'tech'
+					? appState.selectedPlayer.technology_points
+					: appState.selectedPlayer.boss_technology_points,
+			min: 0,
+			max: 99999
+		});
+		if (!result) return;
+
+		if (type === 'tech') {
+			appState.selectedPlayer.technology_points = result;
+		} else {
+			appState.selectedPlayer.boss_technology_points = result;
+		}
+		appState.selectedPlayer.state = EntryState.MODIFIED;
+	}
+</script>
+
+{#snippet technologyButton(
+	techID: string,
+	isSelected: any,
+	technologyItem: Technology,
+	type: 'tech' | 'ancient'
+)}
+	{@const borderClass = type === 'tech' ? 'border-tech-500' : 'border-ancient-tech-500'}
+	{@const backgroundGradient =
+		type === 'tech'
+			? `bg-linear-to-tl from-tech-500/100 to-tech-500/25`
+			: `bg-linear-to-tl from-ancient-tech-500/100 to-ancient-tech-500/25`}
+	{@const headerText =
+		technologyItem.details.unlock_build_objects.length > 0 ? m.structures() : m.item({ count: 2 })}
+	{@const selectedClass = isSelected
+		? ``
+		: type === 'tech'
+			? 'hover:ring-2 hover:ring-tech-500'
+			: 'hover:ring-2 hover:ring-ancient-tech-500'}
+	<button
+		class="relative h-24 w-24 cursor-pointer border transition-all duration-200 2xl:h-32 2xl:w-32 {borderClass} {selectedClass}"
+		onclick={() => toggleTechnology(techID)}
+	>
+		<Tooltip popupClass="bg-surface-800 p-4">
+			<div
+				class="mb-2 flex aspect-square items-center justify-center {backgroundGradient} {isSelected
+					? ''
+					: 'opacity-25'}"
+			>
+				<div class="bg-primary-950 absolute top-0 h-auto w-full py-0.5 text-xs">
+					{headerText}
+				</div>
+				{#await getImageForTechnology(techID) then icon}
+					<img
+						src={icon || staticIcons.unknownIcon}
+						alt={technologiesData.getByKey(techID)?.localized_name}
+						class="mb-2 h-16 w-16 2xl:h-24 2xl:w-24"
+					/>
+				{/await}
+				<div class="bg-surface-800/50 absolute bottom-0 h-auto w-full py-2 text-xs">
+					{technologyItem.localized_name}
+				</div>
+			</div>
+			{#if !isSelected}
+				<div class="absolute right-8 bottom-6 2xl:right-14 2xl:bottom-12">
+					<h2 class="h2">{technologyItem.details.cost}</h2>
+				</div>
+			{/if}
+			{#snippet popup()}
+				<div class="flex max-w-3xl min-w-96 flex-col items-start justify-items-start space-y-2">
+					<div class="flex w-full text-start">
+						<span class="grow text-xl font-bold">{technologyItem.localized_name}</span>
+						<div class="flex items-center">
+							<img
+								src={type === 'tech' ? techPointIcon : ancientTechPointIcon}
+								alt="Tech Point Icon"
+								class="mr-2 h-6 w-6"
+								loading="lazy"
+							/>
+							<span>{technologyItem.details.cost}</span>
+						</div>
+					</div>
+
+					{#if technologyItem.description}
+						<div class="text-start">{technologyItem.description}</div>
+					{/if}
+					{#if technologyItem.details.unlock_build_objects.length > 1}
+						<span class="font-bold">{m.unlocks()}</span>
+						<ul class="ml-4 list-disc">
+							{#each technologyItem.details.unlock_build_objects as buildObject}
+								{@const buildingData = buildingsData.getByKey(buildObject)}
+								{#if buildingData}
+									{@const icon = assetLoader.loadImage(
+										`${ASSET_DATA_PATH}/img/${buildingData.icon}.webp`
+									)}
+									<li class="flex items-center gap-2 text-start">
+										<img
+											src={icon || staticIcons.unknownIcon}
+											alt={buildingData.localized_name}
+											class="h-6 w-6"
+											loading="lazy"
+										/>
+										{buildingData.localized_name}
+									</li>
+								{:else}
+									<li>{buildObject}</li>
+								{/if}
+							{/each}
+						</ul>
+					{/if}
+					{#if technologyItem.details.unlock_item_recipes.length > 1}
+						<span class="font-bold">{m.unlocks()}</span>
+						<ul class="ml-4 list-disc">
+							{#each technologyItem.details.unlock_item_recipes as itemRecipe}
+								{@const itemData = itemsData.getByKey(itemRecipe)}
+								{#if itemData}
+									<li>{itemData.info.localized_name}</li>
+								{:else}
+									<li>{itemRecipe}</li>
+								{/if}
+							{/each}
+						</ul>
+					{/if}
+				</div>
+			{/snippet}
+		</Tooltip>
+	</button>
+{/snippet}
+
+{#if appState.selectedPlayer}
+	<main class="h-full min-h-[calc(100vh-var(--titlebar-h))] p-4 md:p-8">
+		<div class="mx-auto max-w-7xl">
+			<div
+				id="tech-summary"
+				class="bg-surface-950/95 sticky top-0 z-10 mb-6 flex flex-col gap-3 py-2 backdrop-blur md:static md:mb-8 md:flex-row md:items-center md:justify-between md:gap-0 md:bg-transparent md:py-0 md:backdrop-blur-none"
+			>
+				<div class="flex gap-3 md:gap-8">
+					<button
+						id="tech-points"
+						onclick={() => handleEditTechPoints('tech')}
+						class="border-surface-400 hover:ring-tech-500 flex-1 cursor-pointer rounded-lg border hover:ring-2 md:flex-none"
+					>
+						<div class="px-4 py-2 md:px-6 md:py-3">
+							<div class="text-surface-400 text-xs">{m.technology_points()}</div>
+							<div class="text-tech-500 text-xl font-bold md:text-2xl">
+								{appState.selectedPlayer.technology_points}
+							</div>
+						</div>
+					</button>
+					<button
+						id="ancient-tech-points"
+						onclick={() => handleEditTechPoints('ancient')}
+						class="border-surface-400 hover:ring-ancient-tech-500 flex-1 cursor-pointer rounded-lg border hover:ring-2 md:flex-none"
+					>
+						<div class="px-4 py-2 md:px-6 md:py-3">
+							<div class="text-surface-400 text-xs">{m.ancient_technology_points()}</div>
+							<div class="text-ancient-tech-500 text-xl font-bold md:text-2xl">
+								{appState.selectedPlayer.boss_technology_points}
+							</div>
+						</div>
+					</button>
+				</div>
+				<div id="tech-bulk-actions" class="flex gap-2 md:gap-4">
+					<Button
+						id="tech-lock-all"
+						variant="primary"
+						size="lg"
+						class="hover:ring-secondary-500 flex-1 rounded-lg font-medium hover:ring-2 md:flex-none"
+						onclick={resetAll}
+					>
+						<Icon icon="tabler:lock" class="inline h-4 w-4" />
+						{m.lock_all()}
+					</Button>
+					<Button
+						id="tech-unlock-all"
+						variant="primary"
+						size="lg"
+						class="hover:ring-secondary-500 flex-1 rounded-lg font-medium hover:ring-2 md:flex-none"
+						onclick={unlockAll}
+					>
+						<Icon icon="tabler:lock-open" class="inline h-4 w-4" />
+						{m.unlock_all()}
+					</Button>
+				</div>
+			</div>
+
+			<div id="tech-grid">
+				{#each Object.entries(technologiesOrder) as [levelCap, levelData]}
+					{@const techIDs = levelData.regular}
+					{@const emptySlots = 8 - techIDs.length}
+					{@const ancientTechID = levelData.ancient}
+					<!-- A full tier is ~900px wide, so it wraps below the breakpoint. -->
+					<div class="mb-8 flex flex-col gap-2 md:mb-12 md:grid md:grid-cols-[auto_1fr] md:gap-4">
+						<div class="flex items-center md:mb-4 md:px-10">
+							<div
+								class="border-surface-500 flex h-10 w-10 items-center justify-center rounded border-2 text-lg font-bold md:h-12 md:w-12 md:text-xl"
+							>
+								{levelCap}
+							</div>
+							<div class="ml-4 h-0.5 flex-1"></div>
+						</div>
+
+						<div class="flex flex-wrap gap-2 md:flex-nowrap md:gap-4">
+							<div class="flex flex-wrap gap-2 md:flex-nowrap md:gap-4">
+								{#each techIDs as techID}
+									{@const technologyItem = technologiesData.getByKey(techID)}
+									{@const isSelected =
+										Number(levelCap) === 1
+											? true
+											: appState.selectedPlayer.technologies.some(
+													(t) => t.toLowerCase() === techID.toLowerCase()
+												)}
+									{#if technologyItem && !technologyItem?.details.is_boss_technology}
+										{@render technologyButton(techID, isSelected, technologyItem, 'tech')}
+									{/if}
+								{/each}
+								{#each Array(emptySlots) as _}
+									<div class="hidden w-24 md:block 2xl:w-32"></div>
+								{/each}
+							</div>
+
+							<div class="bg-ancient-tech-500 h-px w-full md:h-auto md:w-px"></div>
+
+							{#if ancientTechID}
+								{@const ancientTechItem = technologiesData.getByKey(ancientTechID) as Technology}
+								{@const isSelected = appState.selectedPlayer.technologies.includes(ancientTechID)}
+								{@render technologyButton(ancientTechID, isSelected, ancientTechItem, 'ancient')}
+							{:else}
+								<div class="bg-tertiary-950 hidden w-24 md:block 2xl:w-32"></div>
+							{/if}
+						</div>
+					</div>
+				{/each}
+			</div>
+		</div>
+	</main>
+{:else}
+	<div class="flex w-full items-center justify-center">
+		<h2 class="h2">{m.select_player_view_entity({ entity: m.technology({ count: 2 }) })}</h2>
+	</div>
+{/if}

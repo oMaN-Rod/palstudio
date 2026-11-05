@@ -1,0 +1,31 @@
+<script lang="ts">
+	import Icon from '$lib/components/ui/icons/Icon.svelte';
+	import * as m from '$i18n/messages';
+
+	const points = [
+		{ icon: 'tabler:box-multiple', text: m.landing_map_point_terrain },
+		{ icon: 'tabler:map-pin', text: m.landing_map_point_pins },
+		{ icon: 'tabler:hand-click', text: m.landing_map_point_click },
+		{ icon: 'tabler:activity', text: m.landing_map_point_live },
+		{ icon: 'tabler:crosshair', text: m.landing_map_point_follow },
+		{ icon: 'tabler:picture-in-picture-on', text: m.landing_map_point_pip }
+	];
+</script>
+
+<section class="relative w-full px-4 py-16 text-center">
+	<h2 class="heading-gradient h2 mx-auto max-w-3xl font-bold">
+		{m.landing_map_heading()}
+	</h2>
+	<p class="text-surface-300 mx-auto mt-4 max-w-2xl">
+		{m.landing_map_body()}
+	</p>
+	<div class="mx-auto mt-8 grid max-w-3xl grid-cols-1 gap-4 sm:grid-cols-3">
+		{#each points as p, i (i)}
+			<div class="flex flex-col items-center gap-2">
+				<Icon icon={p.icon} class="text-primary-400 h-7 w-7" />
+				<span class="text-surface-200 text-sm">{p.text()}</span>
+			</div>
+		{/each}
+	</div>
+	<p class="text-surface-400 mt-8 text-sm">{m.landing_map_caption()}</p>
+</section>

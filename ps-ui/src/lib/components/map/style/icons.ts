@@ -1,0 +1,128 @@
+import compass from '$lib/assets/img/compass.webp';
+import {
+	ICON_ANCIENT_RUIN,
+	ICON_BASE,
+	ICON_BOSS,
+	ICON_BOUNTY,
+	ICON_CAMP,
+	ICON_DUNGEON,
+	ICON_EGG,
+	ICON_FAST_TRAVEL,
+	ICON_JOURNAL,
+	ICON_KINSHIP_PEACH,
+	ICON_LIVE_PAL,
+	ICON_ORIGIN,
+	ICON_PLAYER,
+	ICON_SKILL_FRUIT,
+	ICON_TOWER_BOSS,
+	ICON_WATCHTOWER,
+	RELIC_TYPES,
+	relicIconId
+} from './iconIds';
+import { mapImg, relicTypeIcon } from './styles';
+
+export const PAL_BORDER_ALPHA = '#ffffff';
+export const PAL_BORDER_PREDATOR = '#ef4444';
+export const PAL_BORDER_LIVE = '#22c55e';
+export const LIVE_PLAYER_BORDER = '#3b82f6';
+
+export function staticIconUrls(): Record<string, string> {
+	const urls: Record<string, string> = {
+		[ICON_PLAYER]: mapImg.player,
+		[ICON_BASE]: mapImg.baseCamp,
+		[ICON_FAST_TRAVEL]: mapImg.fastTravel,
+		[ICON_WATCHTOWER]: mapImg.watchTower,
+		[ICON_DUNGEON]: mapImg.dungeon,
+		[ICON_BOSS]: mapImg.boss,
+		[ICON_ORIGIN]: compass,
+		[ICON_TOWER_BOSS]: mapImg.tower,
+		[ICON_EGG]: mapImg.egg,
+		[ICON_CAMP]: mapImg.camp,
+		[ICON_JOURNAL]: mapImg.journal,
+		[ICON_BOUNTY]: mapImg.bounty,
+		[ICON_SKILL_FRUIT]: mapImg.fruit,
+		[ICON_KINSHIP_PEACH]: mapImg.kinshipPeach,
+		[ICON_ANCIENT_RUIN]: mapImg.ancientRuin,
+		[ICON_LIVE_PAL]: mapImg.marker
+	};
+	for (const type of RELIC_TYPES) {
+		urls[relicIconId(type)] = relicTypeIcon(type);
+	}
+	return urls;
+}
+
+export function renderPalIcon(
+	palImageUrl: string,
+	borderColor: string,
+	backgroundColor?: string
+): Promise<ImageData> {
+	const size = 40;
+	const borderWidth = 2;
+	const innerRadius = size / 2 - borderWidth;
+
+	return new Promise((resolve, reject) => {
+		const canvas = document.createElement('canvas');
+		canvas.width = size;
+		canvas.height = size;
+		const ctx = canvas.getContext('2d');
+		if (!ctx) {
+			reject(new Error('2d context unavailable'));
+			return;
+		}
+
+		const img = new Image();
+		img.onload = () => {
+			ctx.clearRect(0, 0, size, size);
+
+			ctx.save();
+			ctx.beginPath();
+			ctx.arc(size / 2, size / 2, innerRadius - 1, 0, Math.PI * 2);
+			ctx.closePath();
+			ctx.clip();
+
+			if (backgroundColor) {
+				ctx.fillStyle = backgroundColor;
+				ctx.fillRect(0, 0, size, size);
+			}
+
+			const scale = Math.max(size / img.width, size / img.height);
+			const w = img.width * scale;
+			const h = img.height * scale;
+			ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+			ctx.restore();
+
+			ctx.beginPath();
+			ctx.arc(size / 2, size / 2, size / 2 - borderWidth / 2, 0, Math.PI * 2);
+			ctx.strokeStyle = borderColor;
+			ctx.lineWidth = borderWidth;
+			ctx.stroke();
+
+			resolve(ctx.getImageData(0, 0, size, size));
+		};
+		img.onerror = () => reject(new Error(`failed to load ${palImageUrl}`));
+		img.src = palImageUrl;
+	});
+}
+
+export function renderPointerIcon(color: string): ImageData | null {
+	const size = 16;
+	const canvas = document.createElement('canvas');
+	canvas.width = size;
+	canvas.height = size;
+	const ctx = canvas.getContext('2d');
+	if (!ctx) return null;
+
+	ctx.beginPath();
+	ctx.moveTo(size / 2, 1);
+	ctx.lineTo(size - 2, size - 3);
+	ctx.lineTo(2, size - 3);
+	ctx.closePath();
+	ctx.fillStyle = color;
+	ctx.fill();
+	ctx.lineJoin = 'round';
+	ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+	ctx.lineWidth = 1.5;
+	ctx.stroke();
+
+	return ctx.getImageData(0, 0, size, size);
+}

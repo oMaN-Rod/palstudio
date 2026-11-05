@@ -1,0 +1,209 @@
+<script lang="ts">
+	import { Tooltip } from '$components/ui';
+	import { type Pal } from '$types';
+	import { ASSET_DATA_PATH } from '$lib/constants';
+	import { cn } from '$theme';
+	import { getAppState, getPalEditorState } from '$states';
+	import PalInfoPopup from './PalInfoPopup.svelte';
+	import StatusBadge from './StatusBadge.svelte';
+	import { palsData } from '$lib/data';
+	import { ContextMenu } from '$components/ui';
+	import { assetLoader, calculateFilters } from '$utils';
+	import { staticIcons } from '$types/icons';
+	import * as m from '$i18n/messages';
+	import { c } from '$utils/commonTranslations';
+
+	let {
+		pal = $bindable(),
+		palIconSize = "h-20 w-20 2xl:h-24 2xl:w-24",
+		onMove,
+		onAdd,
+		onClone,
+		onCloneToUps,
+		onDelete,
+		selected = $bindable<string[]>([]),
+		onSelect,
+		showCloneToUps = true,
+		disabled = false,
+		levelCap
+	} = $props<{
+		pal: Pal;
+		palIconSize?: string;
+		onMove?: () => void;
+		onAdd?: () => void;
+		onClone?: () => void;
+		onCloneToUps?: () => void;
+		onDelete?: () => void;
+		selected?: string[];
+		onSelect?: (pal: Pal, event: MouseEvent) => void;
+		showCloneToUps?: boolean;
+		disabled?: boolean;
+		levelCap?: number;
+	}>();
+
+	const appState = getAppState();
+	const palEditor = getPalEditorState();
+
+	const cardClass = $derived(
+		cn(
+			'relative w-full outline outline-2 outline-surface-600',
+			pal && selected.includes(pal.instance_id)
+				? 'ring-4 ring-secondary-500'
+				: disabled
+					? 'outline-surface-600'
+					: 'hover:ring-4 hover:ring-secondary-500 outline-surface-600'
+		)
+	);
+	const sickClass = $derived(pal && pal.is_sick ? 'animate-pulse ring-4 ring-error-500' : '');
+	const awakenedClass = $derived(pal && pal.is_awakened ? 'awakened-ring' : '');
+	const palData = $derived(palsData.getByKey(pal.character_key));
+	const effectiveLevelCap = $derived(levelCap ?? appState.selectedPlayer?.level);
+	const displayLevel = $derived(
+		effectiveLevelCap !== undefined && effectiveLevelCap < pal.level ? effectiveLevelCap : pal.level
+	);
+	const levelSyncTxt = $derived(
+		effectiveLevelCap !== undefined && effectiveLevelCap < pal.level
+			? m.level_sync_display({
+					from: pal.level.toString(),
+					to: effectiveLevelCap.toString()
+				})
+			: m.no_level_sync()
+	);
+
+	const menuItems = $derived.by(() => {
+		if (!pal || pal.character_id === 'None') {
+			return [
+				{
+					label: m.add_new_pal({ pal: c.pal }),
+					onClick: onAdd,
+					icon: 'tabler:plus'
+				}
+			];
+		}
+
+		const items = [
+			{
+				label: m.move_to_entity({ entity: m.palbox() }),
+				onClick: onMove,
+				icon: 'tabler:archive-off'
+			},
+			{ label: m.clone_selected_pal({ pal: c.pal }), onClick: onClone, icon: 'tabler:copy' }
+		];
+
+		if (onCloneToUps && showCloneToUps) {
+			items.push({
+				label: m.clone_to_entity({ entity: m.ups() }),
+				onClick: onCloneToUps,
+				icon: 'tabler:upload'
+			});
+		}
+
+		items.push({
+			label: m.delete_entity({ entity: c.pal }),
+			onClick: onDelete,
+			icon: 'tabler:trash'
+		});
+
+		return items;
+	});
+
+	const genderIcon = $derived(assetLoader.loadImage(`${ASSET_DATA_PATH}/img/${pal.gender}.webp`));
+	const palIcon = $derived.by(() => {
+		if (!pal) return '';
+		return assetLoader.loadMenuImage(pal.character_key, palData?.is_pal || false);
+	});
+
+	function handleClick(event: MouseEvent) {
+		if (disabled) return;
+		if (!pal || pal.character_id === 'None') {
+			onAdd?.();
+			return;
+		}
+
+		if ((event.ctrlKey || event.metaKey) && onSelect) {
+			event.preventDefault();
+			event.stopPropagation();
+			onSelect(pal, event);
+		} else {
+			handlePalSelect();
+		}
+	}
+
+	function handlePalSelect() {
+		if (!pal || pal.character_id === 'None') return;
+		palEditor.open(pal);
+	}
+</script>
+
+<ContextMenu items={menuItems} menuClass="bg-surface-700" xOffset={-32}>
+	<button class={cn(cardClass, awakenedClass)} onclick={handleClick}>
+		{#if pal && pal.character_id !== 'None'}
+			<Tooltip
+				popupClass="p-4 mt-12 bg-surface-800"
+				rounded="rounded-none"
+				position="right"
+				useArrow={false}
+			>
+				<div class={cn('grid grid-cols-[1fr_auto] overflow-hidden', sickClass)}>
+					<div class="ml-4 flex min-w-0 flex-col">
+						<div class="flex flex-wrap items-center gap-x-2">
+							<Tooltip label={levelSyncTxt}>
+								<div class="flex items-end space-x-0.5">
+									<span class="text-xs"> LV </span>
+									<span class="text-lg font-bold">{displayLevel}</span>
+								</div>
+							</Tooltip>
+							<span class="truncate text-lg font-bold">{pal.name}</span>
+							<div class="h-4 w-4 2xl:h-6 2xl:w-6">
+								<img src={genderIcon} alt={pal.gender} />
+							</div>
+							{#if pal.is_boss}
+								<div class="h-4 w-4 2xl:h-6 2xl:w-6">
+									<img src={staticIcons.alphaIcon} alt="Alpha" />
+								</div>
+							{/if}
+							{#if pal.is_predator}
+								<div class="h-4 w-4 2xl:h-6 2xl:w-6">
+									<img
+										src={staticIcons.predatorIcon}
+										alt="Alpha"
+										class="pal-element-badge"
+										style="filter: {calculateFilters('#FF0000')};"
+									/>
+								</div>
+							{/if}
+							{#if pal.is_lucky}
+								<img src={staticIcons.luckyIcon} alt="Lucky" class="h-4 w-4 2xl:h-6 2xl:w-6" />
+							{/if}
+							{#if pal.is_imported}
+								<img
+									src={staticIcons.importedIcon}
+									alt="Imported"
+									class="h-4 w-4 2xl:h-6 2xl:w-6"
+								/>
+							{/if}
+						</div>
+						<StatusBadge
+							bind:pal
+							showActions={false}
+							healthHeight="h-4 2xl:h-6"
+							stomachHeight="h-2"
+							showStomachLabel={false}
+						/>
+					</div>
+					<div class="flex flex-col">
+						<div class={cn('relative flex items-center justify-center ')}>
+							<img src={palIcon} alt={pal.name} class={palIconSize} />
+						</div>
+					</div>
+				</div>
+
+				{#snippet popup()}
+					<PalInfoPopup bind:pal />
+				{/snippet}
+			</Tooltip>
+		{:else}
+			<div class="h-16 w-16 2xl:h-18 2xl:w-18"></div>
+		{/if}
+	</button>
+</ContextMenu>

@@ -1,0 +1,291 @@
+// @vitest-environment jsdom
+import * as m from '$i18n/messages';
+import { c } from '$lib/utils/commonTranslations';
+import { fireEvent, render } from '@testing-library/svelte';
+import { tick } from 'svelte';
+import { describe, expect, it, vi } from 'vitest';
+import '../../pal/__tests__/fixtures/matchMediaPolyfill';
+import LiveInstanceModal from '../LiveInstanceModal.svelte';
+import LiveInstanceSwitcher from '../LiveInstanceSwitcher.svelte';
+
+const INSTANCES = [
+	{
+		id: 'auto:11',
+		source: 'auto' as const,
+		name: 'Solo World',
+		host: '127.0.0.1',
+		port: 52104,
+		live: true,
+		targetId: null
+	},
+	{
+		id: 'saved:1',
+		source: 'saved' as const,
+		name: 'Remote box',
+		host: '10.0.0.14',
+		port: 8788,
+		live: false,
+		targetId: null
+	}
+];
+
+describe('LiveInstanceSwitcher', () => {
+	it('renders every instance with its address', () => {
+		const { getByText } = render(LiveInstanceSwitcher, {
+			props: {
+				instances: INSTANCES,
+				activeId: 'auto:11',
+				onselect: vi.fn(),
+				onedit: vi.fn(),
+				ondelete: vi.fn(),
+				onadd: vi.fn()
+			}
+		});
+		expect(getByText('Solo World')).toBeTruthy();
+		expect(getByText(/127\.0\.0\.1:52104/)).toBeTruthy();
+		expect(getByText('Remote box')).toBeTruthy();
+		expect(getByText(/10\.0\.0\.14:8788/)).toBeTruthy();
+	});
+
+	it('marks the active instance', () => {
+		const { container } = render(LiveInstanceSwitcher, {
+			props: {
+				instances: INSTANCES,
+				activeId: 'saved:1',
+				onselect: vi.fn(),
+				onedit: vi.fn(),
+				ondelete: vi.fn(),
+				onadd: vi.fn()
+			}
+		});
+		const active = container.querySelector('[data-instance-id="saved:1"]');
+		expect(active?.getAttribute('aria-current')).toBe('true');
+	});
+
+	it('calls onselect with the clicked id', async () => {
+		const onselect = vi.fn();
+		const { container } = render(LiveInstanceSwitcher, {
+			props: {
+				instances: INSTANCES,
+				activeId: 'auto:11',
+				onselect,
+				onedit: vi.fn(),
+				ondelete: vi.fn(),
+				onadd: vi.fn()
+			}
+		});
+		const button = container.querySelector('[data-instance-id="saved:1"]') as HTMLElement;
+		button.click();
+		await tick();
+		expect(onselect).toHaveBeenCalledWith('saved:1');
+	});
+
+	it('offers edit only for saved instances', () => {
+		const { container } = render(LiveInstanceSwitcher, {
+			props: {
+				instances: INSTANCES,
+				activeId: 'auto:11',
+				onselect: vi.fn(),
+				onedit: vi.fn(),
+				ondelete: vi.fn(),
+				onadd: vi.fn()
+			}
+		});
+		expect(container.querySelector('[data-edit-id="saved:1"]')).toBeTruthy();
+		expect(container.querySelector('[data-edit-id="auto:11"]')).toBeNull();
+	});
+
+	it('offers delete only for saved instances', () => {
+		const { container } = render(LiveInstanceSwitcher, {
+			props: {
+				instances: INSTANCES,
+				activeId: 'auto:11',
+				onselect: vi.fn(),
+				onedit: vi.fn(),
+				ondelete: vi.fn(),
+				onadd: vi.fn()
+			}
+		});
+		expect(container.querySelector('[data-delete-id="saved:1"]')).toBeTruthy();
+		expect(container.querySelector('[data-delete-id="auto:11"]')).toBeNull();
+	});
+
+	it('calls ondelete with the clicked saved instance', async () => {
+		const ondelete = vi.fn();
+		const { container } = render(LiveInstanceSwitcher, {
+			props: {
+				instances: INSTANCES,
+				activeId: 'auto:11',
+				onselect: vi.fn(),
+				onedit: vi.fn(),
+				ondelete,
+				onadd: vi.fn()
+			}
+		});
+		const button = container.querySelector('[data-delete-id="saved:1"]') as HTMLElement;
+		button.click();
+		await tick();
+		expect(ondelete).toHaveBeenCalledWith(INSTANCES[1]);
+	});
+
+	it('renders an empty state with nothing detected or saved', () => {
+		const { getByText } = render(LiveInstanceSwitcher, {
+			props: {
+				instances: [],
+				activeId: null,
+				onselect: vi.fn(),
+				onedit: vi.fn(),
+				ondelete: vi.fn(),
+				onadd: vi.fn()
+			}
+		});
+		expect(getByText('No instances found')).toBeTruthy();
+	});
+
+	it('marks the active auto-discovered instance disconnected once the bridge drops, not live', () => {
+		const { container } = render(LiveInstanceSwitcher, {
+			props: {
+				instances: INSTANCES,
+				activeId: 'auto:11',
+				activeConnected: false,
+				onselect: vi.fn(),
+				onedit: vi.fn(),
+				ondelete: vi.fn(),
+				onadd: vi.fn()
+			}
+		});
+		const dot = container.querySelector('[data-instance-id="auto:11"] [data-dot-status]');
+		expect(dot?.getAttribute('data-dot-status')).toBe('disconnected');
+	});
+
+	it('marks the active instance connected when the bridge is up', () => {
+		const { container } = render(LiveInstanceSwitcher, {
+			props: {
+				instances: INSTANCES,
+				activeId: 'auto:11',
+				activeConnected: true,
+				onselect: vi.fn(),
+				onedit: vi.fn(),
+				ondelete: vi.fn(),
+				onadd: vi.fn()
+			}
+		});
+		const dot = container.querySelector('[data-instance-id="auto:11"] [data-dot-status]');
+		expect(dot?.getAttribute('data-dot-status')).toBe('connected');
+	});
+
+	it('marks a saved, inactive instance unknown rather than live or dead', () => {
+		const { container } = render(LiveInstanceSwitcher, {
+			props: {
+				instances: INSTANCES,
+				activeId: 'auto:11',
+				activeConnected: true,
+				onselect: vi.fn(),
+				onedit: vi.fn(),
+				ondelete: vi.fn(),
+				onadd: vi.fn()
+			}
+		});
+		const dot = container.querySelector('[data-instance-id="saved:1"] [data-dot-status]');
+		expect(dot?.getAttribute('data-dot-status')).toBe('unknown');
+	});
+});
+
+describe('LiveInstanceModal', () => {
+	const initial = { name: '', host: '127.0.0.1', port: 8788, token: '' };
+
+	it('blocks save until host, port and token are filled', async () => {
+		const onsave = vi.fn();
+		const { getByRole } = render(LiveInstanceModal, {
+			props: { initial, ontest: vi.fn(), onsave, oncancel: vi.fn() }
+		});
+		const save = getByRole('button', { name: c.save }) as HTMLButtonElement;
+		expect(save.disabled).toBe(true);
+		save.click();
+		await tick();
+		expect(onsave).not.toHaveBeenCalled();
+	});
+
+	it('warns when the address is not loopback', async () => {
+		const { getByText } = render(LiveInstanceModal, {
+			props: {
+				initial: { name: 'Remote', host: '10.0.0.14', port: 8788, token: 's3cr3t' },
+				ontest: vi.fn(),
+				onsave: vi.fn(),
+				oncancel: vi.fn()
+			}
+		});
+		expect(getByText(/not encrypted/)).toBeTruthy();
+	});
+
+	it('surfaces a failed test result', async () => {
+		const ontest = vi.fn().mockResolvedValue({ ok: false, error: 'timeout' });
+		const { getByRole, getByText } = render(LiveInstanceModal, {
+			props: {
+				initial: { name: 'Dead', host: '127.0.0.1', port: 1, token: 't' },
+				ontest,
+				onsave: vi.fn(),
+				oncancel: vi.fn()
+			}
+		});
+		await fireEvent.click(getByRole('button', { name: m.live_instance_test() }));
+		await tick();
+		await tick();
+		expect(ontest).toHaveBeenCalled();
+		expect(getByText('Could not connect')).toBeTruthy();
+	});
+
+	it('hands cancel straight back to the caller', async () => {
+		const oncancel = vi.fn();
+		const { getByRole } = render(LiveInstanceModal, {
+			props: {
+				initial: { name: 'Remote', host: '127.0.0.1', port: 8788, token: 's3cr3t' },
+				ontest: vi.fn(),
+				onsave: vi.fn(),
+				oncancel
+			}
+		});
+		await fireEvent.click(getByRole('button', { name: m.cancel() }));
+		expect(oncancel).toHaveBeenCalled();
+	});
+
+	it('saves the trimmed fields once they are all filled', async () => {
+		const onsave = vi.fn();
+		const { getByRole } = render(LiveInstanceModal, {
+			props: {
+				initial: { name: '  Home  ', host: ' 127.0.0.1 ', port: 8788, token: 's3cr3t' },
+				ontest: vi.fn(),
+				onsave,
+				oncancel: vi.fn()
+			}
+		});
+		await fireEvent.click(getByRole('button', { name: c.save }));
+		expect(onsave).toHaveBeenCalledWith({
+			name: 'Home',
+			host: '127.0.0.1',
+			port: 8788,
+			token: 's3cr3t'
+		});
+	});
+
+	it('blocks test when the port is cleared', async () => {
+		const ontest = vi.fn();
+		const { container, getByRole } = render(LiveInstanceModal, {
+			props: {
+				initial: { name: 'Remote', host: '10.0.0.14', port: 8788, token: 's3cr3t' },
+				ontest,
+				onsave: vi.fn(),
+				oncancel: vi.fn()
+			}
+		});
+		const portInput = container.querySelector('input[type="number"]') as HTMLInputElement;
+		portInput.value = '';
+		portInput.dispatchEvent(new Event('input'));
+		await tick();
+		const test = getByRole('button', { name: m.live_instance_test() }) as HTMLButtonElement;
+		expect(test.disabled).toBe(true);
+		test.click();
+		await tick();
+		expect(ontest).not.toHaveBeenCalled();
+	});
+});

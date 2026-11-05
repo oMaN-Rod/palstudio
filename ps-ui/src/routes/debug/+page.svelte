@@ -1,0 +1,715 @@
+<script lang="ts">
+	import Icon from '$lib/components/ui/icons/Icon.svelte';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { Button, Combobox, Tooltip, TooltipButton } from '$components/ui';
+	import SectionTabs, { panelId, tabId } from '$components/ui/tabs/SectionTabs.svelte';
+	import { buildingsData } from '$lib/data';
+	import { getAppState, getModalState } from '$states';
+	import {
+		MessageType,
+		type Base,
+		type CharacterContainer,
+		type Guild,
+		type ItemContainer,
+		type Pal,
+		type Player
+	} from '$types';
+	import { Switch } from '@skeletonlabs/skeleton-svelte';
+	import { onMount, untrack } from 'svelte';
+	import { JSONEditor, type ContextMenuItem } from 'svelte-jsoneditor';
+	import { send, sendAndWait } from '$lib/utils/websocketUtils';
+	import type { CheckedChangeDetails } from '@zag-js/switch';
+	import * as m from '$i18n/messages';
+	import { c } from '$lib/utils/commonTranslations';
+
+	type JsonContent = {
+		content: { text: string };
+	};
+
+	type RawDataType =
+		| 'guild'
+		| 'base'
+		| 'player'
+		| 'pal'
+		| 'item_container'
+		| 'character_container'
+		| 'level';
+	const tabTitles = {
+		guild: c.guild,
+		base: c.base,
+		player: c.player,
+		pal: c.pal,
+		item_container: m.item_container(),
+		character_container: m.character_container(),
+		level: m.level()
+	};
+	const toggleRaw = m.toggle_entity({ entity: m.raw() });
+
+	const appState = getAppState();
+	const modal = getModalState();
+
+	let jsons: Record<RawDataType, JsonContent> = $state({
+		guild: { content: { text: '' } },
+		base: { content: { text: '' } },
+		player: { content: { text: '' } },
+		pal: { content: { text: '' } },
+		item_container: { content: { text: '' } },
+		character_container: { content: { text: '' } },
+		level: { content: { text: '' } }
+	});
+	const SECTION_ID_PREFIX = 'debug';
+	let activePage: RawDataType = $state('guild');
+	const tabs = $derived(
+		(Object.keys(jsons) as RawDataType[]).map((key) => ({ id: key, label: tabTitles[key] }))
+	);
+
+	let guild: Guild | undefined = $state(undefined);
+	let selectedGuildId: string = $state('');
+	let guildRawData: Record<string, any> | undefined = $state(undefined);
+
+	let base: Base | undefined = $state(undefined);
+	let selectedBaseId: string = $state('');
+	let baseRawData: Record<string, any> | undefined = $state(undefined);
+
+	let player: Player | undefined = $state(undefined);
+	let selectedPlayerId: string = $state('');
+	let playerRawData: Record<string, any> | undefined = $state(undefined);
+
+	let pal: Pal | undefined = $state(undefined);
+	let selectedPalId: string = $state('');
+	let palRawData: Record<string, any> | undefined = $state(undefined);
+
+	let itemContainer: ItemContainer | undefined = $state(undefined);
+	let selectedItemContainerId: string = $state('');
+	let itemContainerRawData: Record<string, any> | undefined = $state(undefined);
+
+	let characterContainer: CharacterContainer | undefined = $state(undefined);
+	let selectedCharacterContainerId: string = $state('');
+	let characterContainerRawData: Record<string, any> | undefined = $state(undefined);
+	let levelSavRawData: Record<string, any> | undefined = $state(undefined);
+
+	const guildSelectOptions = $derived.by(() => {
+		return Object.values(appState.guilds).map((guild) => ({
+			label: guild.name,
+			value: guild.id
+		}));
+	});
+
+	const baseSelectOptions = $derived.by(() => {
+		if (!guild || !(guild as Guild).bases) return [];
+		let options: { [key: string]: string } = {};
+		for (const baseId of Object.keys(guild.bases)) {
+			const base = guild.bases[baseId];
+			if (base) {
+				options[base.id] = base.id;
+			}
+		}
+		return Object.entries(options).map(([id, name]) => ({
+			label: name,
+			value: id
+		}));
+	});
+
+	const playerSelectOptions = $derived.by(() => {
+		if (!guild || !(guild as Guild).players)
+			return Object.values(appState.players).map((player) => ({
+				label: player.nickname,
+				value: player.uid
+			}));
+		let options: { [key: string]: string } = {};
+		for (const playerId of guild.players) {
+			const player = appState.players[playerId];
+			if (player) {
+				options[player.uid] = player.nickname;
+			}
+		}
+		return Object.entries(options).map(([uid, nickname]) => ({
+			label: nickname,
+			value: uid
+		}));
+	});
+
+	const palSelectOptions = $derived.by(() => {
+		let options: { [key: string]: string } = {};
+		if (base && (base as Base).pals) {
+			for (const palId of Object.keys(base.pals)) {
+				const pal = base.pals[palId];
+				if (pal) {
+					options[pal.instance_id] = pal.nickname || pal.name || pal.character_id;
+				}
+			}
+			return Object.entries(options).map(([id, name]) => ({
+				label: name,
+				value: id
+			}));
+		}
+
+		if (player && (player as Player).pals) {
+			for (const palId of Object.keys(player.pals!)) {
+				const pal = player.pals![palId];
+				if (pal) {
+					options[pal.instance_id] = pal.nickname || pal.name || pal.character_id;
+				}
+			}
+			return Object.entries(options).map(([id, name]) => ({
+				label: name,
+				value: id
+			}));
+		}
+		return [];
+	});
+
+	const characterContainerSelectOptions = $derived.by(() => {
+		let options: { [key: string]: string } = {};
+		if (base) {
+			options[base.container_id] = m.base_container();
+			return Object.entries(options).map(([id, name]) => ({
+				label: name,
+				value: id
+			}));
+		}
+		if (player) {
+			options[player.pal_box_id] = m.palbox();
+			options[player.otomo_container_id] = m.party();
+			return Object.entries(options).map(([id, name]) => ({
+				label: name,
+				value: id
+			}));
+		}
+		return [];
+	});
+
+	const itemContainerSelectOptions = $derived.by(() => {
+		let options: { [key: string]: string } = {};
+		if (base) {
+			for (const [id, container] of Object.entries(base.storage_containers!)) {
+				if (container) {
+					const buildingData = buildingsData.getByKey(container.key);
+					options[id] = buildingData?.localized_name || container.key;
+				}
+			}
+			return Object.entries(options).map(([id, name]) => ({
+				label: name,
+				value: id
+			}));
+		}
+		if (player) {
+			options['common'] = m.common();
+			options['essential'] = m.key_items();
+			options['weapon'] = m.weapon({ count: 1 });
+			options['armor'] = m.armor();
+			options['food'] = m.food();
+			return Object.entries(options).map(([id, name]) => ({
+				label: name,
+				value: id
+			}));
+		}
+		return [];
+	});
+
+	function setJson(tab: RawDataType, data: any) {
+		if (!data) return;
+		jsons[tab].content.text = JSON.stringify(data, null, 2);
+		activePage = tab;
+	}
+
+	async function handleSelectPlayer(selectedPlayerId: string | number) {
+		if (!selectedPlayerId) return;
+		player = Object.values(appState.players).find((p) => p.uid == selectedPlayerId);
+		setJson('player', player);
+	}
+
+	function handleSelectGuild(selectedGuildId: string | number, reset = true) {
+		if (!selectedGuildId) return;
+		guild = Object.values(appState.guilds).find((g) => g.id == selectedGuildId);
+		setJson('guild', guild);
+		if (!reset) return;
+		base = player = pal = itemContainer = characterContainer = undefined;
+		selectedBaseId =
+			selectedPlayerId =
+			selectedPalId =
+			selectedItemContainerId =
+			selectedCharacterContainerId =
+				'';
+	}
+
+	function handleSelectBase(selectedBaseId: string | number, reset = true) {
+		if (!selectedBaseId) return;
+		base = guild?.bases[selectedBaseId];
+		setJson('base', base);
+		if (!reset) return;
+		player = pal = itemContainer = characterContainer = undefined;
+		selectedPlayerId = selectedPalId = selectedItemContainerId = selectedCharacterContainerId = '';
+	}
+
+	function searchAllPals(palId: string) {
+		for (const player of Object.values(appState.players)) {
+			if (player.pals?.[palId]) {
+				handleSelectPlayer(player.uid);
+				handleSelectGuild(player.guild_id, false);
+				return player.pals[palId];
+			}
+		}
+		for (const base of Object.values(appState.guilds).flatMap((g) => Object.values(g.bases))) {
+			if (base.pals?.[palId]) {
+				selectedBaseId = base.id;
+				handleSelectBase(base.id, false);
+				return base.pals[palId];
+			}
+		}
+	}
+
+	function handleSelectPal(selectedPalId: string | number) {
+		if (!selectedPalId) return;
+		pal =
+			base?.pals[selectedPalId] ||
+			player?.pals?.[selectedPalId] ||
+			searchAllPals(selectedPalId as string);
+		setJson('pal', pal);
+	}
+
+	function handleSelectCharacterContainer(selectedCharacterContainerId: string | number) {
+		if (base) {
+			characterContainer = base.pal_container;
+		} else if (player) {
+			characterContainer =
+				selectedCharacterContainerId === player?.pal_box_id ? player?.pal_box : player?.party;
+		}
+		setJson('character_container', characterContainer);
+	}
+
+	function handleSelectItemContainer(selectedItemContainerId: string | number) {
+		if (base) {
+			itemContainer = base.storage_containers?.[selectedItemContainerId];
+		} else if (player) {
+			switch (selectedItemContainerId) {
+				case 'common':
+					itemContainer = player?.common_container;
+					break;
+				case 'essential':
+					itemContainer = player?.essential_container;
+					break;
+				case 'weapon':
+					itemContainer = player?.weapon_load_out_container;
+					break;
+				case 'armor':
+					itemContainer = player?.player_equipment_armor_container;
+					break;
+				case 'food':
+					itemContainer = player?.food_equip_container;
+					break;
+			}
+		}
+		setJson('item_container', itemContainer);
+	}
+
+	async function fetchGuildRawData(guild_id: any) {
+		const res = await sendAndWait(MessageType.GET_RAW_DATA, { guild_id });
+		if (!res) return;
+		guildRawData = res;
+		setJson('guild', guildRawData);
+	}
+
+	async function fetchBaseRawData(base_id: any) {
+		const res = await sendAndWait(MessageType.GET_RAW_DATA, { base_id });
+		if (!res) return;
+		baseRawData = res;
+		setJson('base', baseRawData);
+	}
+
+	async function fetchPlayerRawData(player_id: any) {
+		const res = await sendAndWait(MessageType.GET_RAW_DATA, { player_id });
+		if (!res) return;
+		console.log('Res', res);
+		playerRawData = res;
+		setJson('player', playerRawData);
+	}
+
+	async function fetchPalRawData(pal_id: any) {
+		const res = await sendAndWait(MessageType.GET_RAW_DATA, { pal_id });
+		if (!res) return;
+		palRawData = res;
+		setJson('pal', palRawData);
+	}
+
+	async function fetchCharacterContainerRawData(character_container_id: any) {
+		const res = await sendAndWait(MessageType.GET_RAW_DATA, { character_container_id });
+		if (!res) return;
+		characterContainerRawData = res;
+		setJson('character_container', characterContainerRawData);
+	}
+
+	async function fetchLevelSavRawData() {
+		const res = await sendAndWait(MessageType.GET_RAW_DATA, { level: true });
+		if (!res) return;
+		levelSavRawData = res;
+		setJson('level', levelSavRawData);
+	}
+
+	async function handleGetRawData(type: RawDataType) {
+		try {
+			switch (type) {
+				case 'guild':
+					if (!guild) return;
+					await fetchGuildRawData(guild.id);
+					break;
+				case 'base':
+					if (!base) return;
+					await fetchBaseRawData(base.id);
+					break;
+				case 'player':
+					if (!player) return;
+					await fetchPlayerRawData(player.uid);
+					break;
+				case 'pal':
+					if (!pal) return;
+					await fetchPalRawData(pal.instance_id);
+					break;
+				case 'character_container':
+					if (!characterContainer) return;
+					await fetchCharacterContainerRawData(characterContainer.id);
+					break;
+				case 'level':
+					await fetchLevelSavRawData();
+					break;
+			}
+		} catch (error) {
+			console.error('Error fetching raw data:', error);
+		}
+	}
+
+	function onRenderContextMenu(items: ContextMenuItem[]) {
+		console.log(items);
+		return items;
+	}
+
+	function selectClass(tab: RawDataType) {
+		return activePage === tab ? 'bg-surface-900 ring ring-secondary-500' : 'bg-surface-900';
+	}
+
+	onMount(() => {
+		const { url } = page;
+		const params = new URLSearchParams(url.search);
+		selectedGuildId = params.get('guildId') || '';
+		selectedPlayerId = params.get('playerId') || '';
+		selectedBaseId = params.get('baseId') || '';
+		selectedPalId = params.get('palId') || '';
+		selectedItemContainerId = params.get('itemContainerId') || '';
+		selectedCharacterContainerId = params.get('characterContainerId') || '';
+		if (selectedGuildId) {
+			handleSelectGuild(selectedGuildId, false);
+		}
+		if (selectedPlayerId) {
+			handleSelectPlayer(selectedPlayerId);
+		}
+		if (selectedBaseId) {
+			handleSelectBase(selectedBaseId, false);
+		}
+		if (selectedPalId) {
+			handleSelectPal(selectedPalId);
+		}
+		if (selectedItemContainerId) {
+			handleSelectItemContainer(selectedItemContainerId);
+		}
+		if (selectedCharacterContainerId) {
+			handleSelectCharacterContainer(selectedCharacterContainerId);
+		}
+	});
+
+	function handleReset() {
+		guild = undefined;
+		base = undefined;
+		player = undefined;
+		pal = undefined;
+		itemContainer = undefined;
+		guildRawData = undefined;
+		baseRawData = undefined;
+		playerRawData = undefined;
+		palRawData = undefined;
+		itemContainerRawData = undefined;
+		characterContainerRawData = undefined;
+
+		jsons.guild.content.text = '';
+		jsons.base.content.text = '';
+		jsons.player.content.text = '';
+		jsons.pal.content.text = '';
+		jsons.item_container.content.text = '';
+		jsons.character_container.content.text = '';
+		activePage = 'guild';
+		selectedGuildId = '';
+		selectedPlayerId = '';
+		selectedBaseId = '';
+		selectedPalId = '';
+		selectedItemContainerId = '';
+	}
+
+	async function handleDeletePlayer() {
+		const confirmed = await modal.showConfirmModal({
+			title: m.delete_entity({ entity: c.player }),
+			message: m.delete_entity_by_name_confirm({ name: player?.nickname || player?.uid || '' }),
+			confirmText: m.delete(),
+			cancelText: m.cancel()
+		});
+		if (confirmed) {
+			send(MessageType.DELETE_PLAYER, { player_id: selectedPlayerId, origin: 'debug' });
+			goto('/loading');
+		}
+	}
+
+	async function handleDeleteGuild() {
+		console.log('handleDeleteGuild', selectedGuildId);
+		const confirmed = await modal.showConfirmModal({
+			title: m.delete_entity({ entity: c.guild }),
+			message: m.delete_entity_by_name_confirm({ name: guild?.name || guild?.id || '' }),
+			confirmText: m.delete(),
+			cancelText: m.cancel()
+		});
+		if (confirmed) {
+			send(MessageType.DELETE_GUILD, {
+				guild_id: selectedGuildId,
+				origin: 'debug'
+			});
+			goto('/loading');
+		}
+	}
+
+	$effect(() => {
+		if (activePage !== 'level') return;
+		untrack(() => handleGetRawData('level'));
+	});
+</script>
+
+<div
+	id="debug-shell"
+	class="animate-fade-in flex h-full flex-col gap-2 p-2 md:grid md:grid-cols-[25%_1fr]"
+>
+	<div class="flex flex-col">
+		<Button variant="primary" class="mb-2 flex w-full" onclick={handleReset}>
+			<span class="font-medium">{m.reset()}</span>
+			<Icon icon="tabler:rotate" size="20" />
+		</Button>
+
+		<div class="flex items-center gap-2">
+			<Combobox
+				label={c.guild}
+				options={guildSelectOptions}
+				bind:value={selectedGuildId}
+				placeholder={m.select_entity({ entity: c.guild })}
+				onChange={handleSelectGuild}
+				selectClass={selectClass('guild')}
+			/>
+			<Tooltip label={toggleRaw}>
+				<Switch
+					defaultChecked={false}
+					onCheckedChange={(e: CheckedChangeDetails) => {
+						e.checked ? handleGetRawData('guild') : setJson('guild', guild!);
+					}}
+					disabled={!guild}
+					compact
+				>
+					{#snippet inactiveChild()}
+						<Icon icon="tabler:eye-off" size="20" />
+					{/snippet}
+					{#snippet activeChild()}
+						<Icon icon="tabler:eye" size="20" />
+					{/snippet}
+				</Switch>
+			</Tooltip>
+			<TooltipButton
+				popupLabel={m.delete_entity({ entity: c.guild })}
+				buttonClass="bg-surface-900 rounded-full hover:bg-red-500/50"
+				onclick={handleDeleteGuild}
+				disabled={!guild}
+			>
+				<Icon icon="tabler:trash" size="20" />
+			</TooltipButton>
+		</div>
+		{#if baseSelectOptions.length > 0}
+			<div class="flex items-center gap-2">
+				<Combobox
+					label={c.base}
+					options={baseSelectOptions}
+					bind:value={selectedBaseId}
+					placeholder={m.select_entity({ entity: c.base })}
+					onChange={handleSelectBase}
+					selectClass={selectClass('base')}
+				/>
+				<Tooltip label={toggleRaw}>
+					<Switch
+						defaultChecked={false}
+						onCheckedChange={(e: CheckedChangeDetails) => {
+							e.checked ? handleGetRawData('base') : setJson('base', base!);
+						}}
+						disabled={!base}
+						compact
+					>
+						{#snippet inactiveChild()}
+							<Icon icon="tabler:eye-off" size="20" />
+						{/snippet}
+						{#snippet activeChild()}
+							<Icon icon="tabler:eye" size="20" />
+						{/snippet}
+					</Switch>
+				</Tooltip>
+			</div>
+		{/if}
+
+		<div class="flex items-center gap-2">
+			<Combobox
+				label={c.player}
+				options={playerSelectOptions}
+				bind:value={selectedPlayerId}
+				placeholder={m.select_entity({ entity: c.player })}
+				onChange={handleSelectPlayer}
+				selectClass={selectClass('player')}
+			/>
+			<Tooltip label={toggleRaw}>
+				<Switch
+					defaultChecked={false}
+					onCheckedChange={(e: CheckedChangeDetails) => {
+						e.checked ? handleGetRawData('player') : setJson('player', player!);
+					}}
+					disabled={!player}
+					compact
+				>
+					{#snippet inactiveChild()}
+						<Icon icon="tabler:eye-off" size="20" />
+					{/snippet}
+					{#snippet activeChild()}
+						<Icon icon="tabler:eye" size="20" />
+					{/snippet}
+				</Switch>
+			</Tooltip>
+			<TooltipButton
+				popupLabel={m.delete_entity({ entity: c.player })}
+				buttonClass="bg-surface-900 rounded-full hover:bg-red-500/50"
+				onclick={handleDeletePlayer}
+				disabled={!player}
+			>
+				<Icon icon="tabler:trash" size="20" />
+			</TooltipButton>
+		</div>
+
+		{#if palSelectOptions.length > 0}
+			<div class="flex items-center gap-2">
+				<Combobox
+					label={c.pal}
+					options={palSelectOptions}
+					bind:value={selectedPalId}
+					placeholder={m.select_entity({ entity: c.pal })}
+					onChange={handleSelectPal}
+					selectClass={selectClass('pal')}
+				/>
+				<Tooltip label={toggleRaw}>
+					<Switch
+						defaultChecked={false}
+						onCheckedChange={(e: CheckedChangeDetails) => {
+							e.checked ? handleGetRawData('pal') : setJson('pal', pal!);
+						}}
+						disabled={!pal}
+						compact
+					>
+						{#snippet inactiveChild()}
+							<Icon icon="tabler:eye-off" size="20" />
+						{/snippet}
+						{#snippet activeChild()}
+							<Icon icon="tabler:eye" size="20" />
+						{/snippet}
+					</Switch>
+				</Tooltip>
+			</div>
+		{/if}
+
+		{#if characterContainerSelectOptions.length > 0}
+			<div class="flex items-center gap-2">
+				<Combobox
+					label={m.character_container()}
+					options={characterContainerSelectOptions}
+					bind:value={selectedCharacterContainerId}
+					placeholder={m.select_entity({ entity: m.character_container() })}
+					onChange={handleSelectCharacterContainer}
+					selectClass={selectClass('character_container')}
+				/>
+				<Tooltip label={toggleRaw}>
+					<Switch
+						defaultChecked={false}
+						onCheckedChange={(e: CheckedChangeDetails) => {
+							e.checked
+								? handleGetRawData('character_container')
+								: setJson('character_container', characterContainer!);
+						}}
+						disabled={!characterContainer}
+						compact
+					>
+						{#snippet inactiveChild()}
+							<Icon icon="tabler:eye-off" size="20" />
+						{/snippet}
+						{#snippet activeChild()}
+							<Icon icon="tabler:eye" size="20" />
+						{/snippet}
+					</Switch>
+				</Tooltip>
+			</div>
+		{/if}
+
+		{#if itemContainerSelectOptions.length > 0}
+			<div class="flex items-center gap-2">
+				<Combobox
+					label={m.item_container()}
+					options={itemContainerSelectOptions}
+					bind:value={selectedItemContainerId}
+					placeholder={m.select_entity({ entity: m.item_container() })}
+					onChange={handleSelectItemContainer}
+					selectClass={selectClass('item_container')}
+				/>
+				<Tooltip label={m.toggle_entity({ entity: m.raw() })}>
+					<Switch
+						defaultChecked={false}
+						onCheckedChange={(e: CheckedChangeDetails) => {
+							e.checked
+								? handleGetRawData('item_container')
+								: setJson('item_container', itemContainer!);
+						}}
+						disabled
+						compact
+					>
+						{#snippet inactiveChild()}
+							<Icon icon="tabler:eye-off" size="20" />
+						{/snippet}
+						{#snippet activeChild()}
+							<Icon icon="tabler:eye" size="20" />
+						{/snippet}
+					</Switch>
+				</Tooltip>
+			</div>
+		{/if}
+	</div>
+
+	<div class="flex min-w-0 flex-col">
+		<div class="flex items-center gap-2">
+			<div class="min-w-0 flex-1">
+				<SectionTabs {tabs} bind:active={activePage} label={m.raw()} idPrefix={SECTION_ID_PREFIX} />
+			</div>
+			<Tooltip baseClass="flex items-center">
+				<span class="text-red-500">{m.read_only()}</span>
+				{#snippet popup()}
+					{m.read_only()}
+				{/snippet}
+			</Tooltip>
+		</div>
+
+		<!-- One editor, not one per tab: each mounts its own parser over the same save. -->
+		<div
+			id={panelId(SECTION_ID_PREFIX, activePage)}
+			role="tabpanel"
+			aria-labelledby={tabId(SECTION_ID_PREFIX, activePage)}
+			tabindex="0"
+			class="min-h-0 flex-1"
+		>
+			<div class="editor-wrapper">
+				<JSONEditor bind:content={jsons[activePage].content} {onRenderContextMenu} />
+			</div>
+		</div>
+	</div>
+</div>

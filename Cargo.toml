@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["psp-core", "psp-db", "psp-app", "psp-server", "psp-desktop", "psp-web", "psp-lua-sys", "psp-plugin"]
+members = ["ps-core", "ps-db", "ps-app", "ps-server", "ps-desktop", "ps-web", "ps-lua-sys", "ps-plugin"]
 
 [workspace.package]
 # Single source of truth for the project version (get_version, Tauri bundle,
 # all crates). Bump with scripts/bump.ps1.
-version = "1.4.3"
+version = "1.5.0"
 edition = "2021"
 license = "GPL-3.0-only"
 
@@ -25,16 +25,17 @@ lto = "thin"
 codegen-units = 1
 
 [workspace.dependencies]
-psp-app = { path = "psp-app" }
-psp-core = { path = "psp-core", default-features = false }
-# Sqlx-free by default so psp-app's normal tree stays platform-agnostic;
+ps-app = { path = "ps-app" }
+ps-core = { path = "ps-core", default-features = false }
+# Sqlx-free by default so ps-app's normal tree stays platform-agnostic;
 # crates that need the SqlxSqliteDriver opt in with `features = ["sqlx-driver"]`.
-psp-db = { path = "psp-db", default-features = false }
-psp-lua-sys = { path = "psp-lua-sys" }
-psp-plugin = { path = "psp-plugin" }
-uesave = { git = "https://github.com/oMaN-Rod/uesave-rs.git", branch = "pluggable-game-support", default-features = false }
+ps-db = { path = "ps-db", default-features = false }
+ps-lua-sys = { path = "ps-lua-sys" }
+ps-plugin = { path = "ps-plugin" }
+uesave = { git = "https://github.com/oMaN-Rod/uesave-rs.git", rev = "75f9c2405725ec417448791b04939d819ad0d286", default-features = false }
 axum = { version = "0.8", features = ["ws", "multipart"] }
 tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
 tower-http = { version = "0.6", features = ["fs", "compression-gzip"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
@@ -46,12 +47,25 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 clap = { version = "4", features = ["derive"] }
 cityhasher = "0.1"         # CityHash64: the hash Palworld saves use for container keys
+indexmap = "2"             # uesave's Properties map, for borrowed-key lookups
 futures = "0.3"
 percent-encoding = "2"
 base64 = "0.22"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+# Pure-Rust codecs only: ps-app reads and writes zips on the wasm32 web build,
+# and bzip2/zstd/lzma each pull a C library that has no libc for that target.
+# ps-server adds them back for mod archives, which can use any method.
+zip = { version = "2", default-features = false, features = ["deflate", "deflate64"] }
+sevenz-rust2 = "0.22"
+blake3 = "1"
+walkdir = "2"
+# Pure-Rust throughout: the PST container is zstd(brotli(cbor(..))) and this
+# workspace targets wasm32-unknown-unknown, which has no libc for the C bindings.
+ruzstd = "0.7"
+brotli = { version = "7", default-features = false, features = ["std"] }
+ciborium = "0.2"
 chrono = { version = "0.4", features = ["serde"] }
 rfd = "0.15"
+keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 opener = "0.7"
 tauri = { version = "2", features = [] }
 tauri-build = { version = "2", features = [] }
@@ -60,9 +74,14 @@ bollard = "0.18"
 reqwest = { version = "0.12", features = ["json"] }
 sysinfo = "0.33"
 sha2 = "0.10"
+hmac = "0.12"
+hkdf = "0.12"
+aes-gcm = "0.11"
+rand = "0.9"
 flate2 = "1"
 tar = "0.4"
 async-trait = "0.1"
+webrtc = "=0.20.4"
 futures-util = "0.3"
 # dev-dependencies
 tokio-tungstenite = "0.24"

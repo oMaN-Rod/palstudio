@@ -1,0 +1,259 @@
+<script lang="ts">
+	import Icon from '$lib/components/ui/icons/Icon.svelte';
+	import type { SelectOption } from '$types';
+	import { nanoid } from 'nanoid';
+	import { cn } from '$theme';
+	import { onMount, type Snippet } from 'svelte';
+	import SvelteVirtualList from '@humanspeak/svelte-virtual-list';
+	import * as m from '$i18n/messages';
+	import { anchoredPopup, portal } from '$utils';
+
+	let {
+		options = [],
+		selectClass: _selectClass = 'bg-surface-900',
+		labelClass: _labelClass = '',
+		labelTextClass: _labelTextClass = '',
+		viewportClass: _viewportClass = '',
+		label = '',
+		name = nanoid(),
+		value = $bindable(),
+		disabled = false,
+		error = false,
+		placeholder = m.search(),
+		selectOption,
+		onChange = () => {},
+		...additionalProps
+	}: {
+		options: SelectOption[];
+		selectClass?: string;
+		labelClass?: string;
+		labelTextClass?: string;
+		label?: string;
+		name?: string;
+		value?: string | number | undefined;
+		disabled?: boolean;
+		error?: boolean;
+		placeholder?: string;
+		selectOption?: Snippet<[SelectOption]>;
+		onChange?: (value: string | number) => void;
+		[key: string]: any;
+	} = $props();
+
+	let isOpen = $state(false);
+	let containerRef: HTMLDivElement;
+	let triggerRef = $state<HTMLDivElement>();
+	let popupRef = $state<HTMLDivElement>();
+	let listboxId = nanoid();
+	let searchTerm = $state('');
+	let isUserSearching = $state(false);
+
+	// Only typing narrows the list; a programmatic value change must not.
+	let filteredOptions = $derived(
+		isUserSearching && searchTerm
+			? options.filter((option: SelectOption) =>
+					option.label.toLowerCase().includes(searchTerm.toLowerCase())
+				)
+			: options
+	);
+
+	const selectClass = $derived(
+		cn(
+			'relative p-2 focus:outline-hidden ring-surface-200-800 focus-within:ring-secondary-500 ring rounded-xs',
+			error ? 'border-error' : '',
+			disabled ? 'text-gray-400 cursor-not-allowed' : '',
+			_selectClass
+		)
+	);
+
+	const labelClass = $derived(
+		cn('label my-2', error ? 'text-error' : '', disabled ? 'text-gray-400' : '', _labelClass)
+	);
+
+	const labelTextClass = $derived(
+		cn('label-text', disabled ? 'text-gray-400' : '', _labelTextClass)
+	);
+
+	function handleOptionClick(option: SelectOption) {
+		if (!disabled) {
+			value = option.value.toString();
+			searchTerm = option.label;
+			isOpen = false;
+			isUserSearching = false;
+			onChange(value);
+		}
+	}
+
+	function handleFocus() {
+		isUserSearching = false;
+		isOpen = true;
+	}
+
+	function handleInput() {
+		isUserSearching = true;
+		isOpen = true;
+	}
+
+	function handleKeyDown(event: KeyboardEvent) {
+		if (disabled) return;
+
+		switch (event.key) {
+			case 'Enter':
+				event.preventDefault();
+				if (isOpen) {
+					const selectedOption = filteredOptions.find(
+						(opt: SelectOption) => opt.value.toString() === value
+					);
+					if (selectedOption) {
+						handleOptionClick(selectedOption);
+					}
+				} else {
+					isOpen = true;
+				}
+				break;
+			case 'Escape':
+				isOpen = false;
+				break;
+			case 'ArrowDown':
+				event.preventDefault();
+				if (!isOpen) {
+					isOpen = true;
+				} else {
+					const currentIndex = filteredOptions.findIndex(
+						(opt: SelectOption) => opt.value.toString() === value
+					);
+					if (currentIndex < filteredOptions.length - 1) {
+						value = filteredOptions[currentIndex + 1].value.toString();
+					}
+				}
+				break;
+			case 'ArrowUp':
+				event.preventDefault();
+				if (isOpen) {
+					const currentIndex = filteredOptions.findIndex(
+						(opt: SelectOption) => opt.value.toString() === value
+					);
+					if (currentIndex > 0) {
+						value = filteredOptions[currentIndex - 1].value.toString();
+					}
+				}
+				break;
+		}
+	}
+
+	$effect(() => {
+		if (value === 'None' || value === '' || value === undefined) {
+			searchTerm = '';
+		} else {
+			const selectedOption = options.find((opt: SelectOption) => opt.value.toString() === value);
+			if (selectedOption) {
+				searchTerm = selectedOption.label;
+			}
+		}
+	});
+
+	onMount(() => {
+		const handleClickOutside = (event: MouseEvent) => {
+			const target = event.target as Node;
+			if (containerRef && !containerRef.contains(target) && !popupRef?.contains(target)) {
+				isOpen = false;
+			}
+		};
+
+		document.addEventListener('click', handleClickOutside);
+
+		if (value !== 'None') {
+			searchTerm = options.find((opt: SelectOption) => opt.value === value)?.label || '';
+		}
+
+		return () => {
+			document.removeEventListener('click', handleClickOutside);
+		};
+	});
+</script>
+
+<div class={labelClass} bind:this={containerRef}>
+	{#if label}
+		<span class={labelTextClass}>
+			{label}
+		</span>
+	{/if}
+	<div
+		bind:this={triggerRef}
+		class={selectClass}
+		tabindex={disabled ? -1 : 0}
+		onkeydown={handleKeyDown}
+		role="combobox"
+		aria-expanded={isOpen}
+		aria-haspopup="listbox"
+		aria-controls={listboxId}
+		aria-labelledby={label}
+		{...additionalProps}
+	>
+		<div class="flex items-center justify-between">
+			<input
+				type="text"
+				class="tap-target w-full bg-transparent focus:outline-hidden"
+				{placeholder}
+				bind:value={searchTerm}
+				onfocus={handleFocus}
+				oninput={handleInput}
+			/>
+			<Icon
+				icon="tabler:chevron-down"
+				class={cn('cursor-pointer transition-transform', isOpen && 'rotate-180')}
+				onclick={() => {
+					if (!isOpen) {
+						isUserSearching = false;
+					}
+					isOpen = !isOpen;
+				}}
+			/>
+		</div>
+		{#if isOpen}
+			<div
+				bind:this={popupRef}
+				{@attach portal()}
+				{@attach anchoredPopup(triggerRef)}
+				id={listboxId}
+				class={cn(
+					'bg-surface-900 border-surface-600 select-popup h-72 rounded-xs border shadow-lg',
+					_viewportClass
+				)}
+				role="listbox"
+			>
+				<SvelteVirtualList items={filteredOptions}>
+					{#snippet renderItem(item)}
+						<div
+							class={cn(
+								'hover:bg-surface-700 cursor-pointer p-2',
+								item.value.toString() === value && 'bg-primary-500'
+							)}
+							role="option"
+							tabindex={0}
+							aria-selected={item.value.toString() === value}
+							onclick={() => handleOptionClick(item)}
+							onkeydown={(e) => {
+								if (e.key === 'Enter' || e.key === ' ') {
+									e.preventDefault();
+									handleOptionClick(item);
+								}
+							}}
+						>
+							{#if selectOption}
+								{@render selectOption(item)}
+							{:else}
+								{item.label}
+							{/if}
+						</div>
+					{/snippet}
+				</SvelteVirtualList>
+			</div>
+		{/if}
+	</div>
+</div>
+
+<style>
+	.select-popup {
+		z-index: 99999;
+	}
+</style>

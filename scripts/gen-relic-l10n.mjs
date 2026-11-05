@@ -2,7 +2,7 @@
 //   L10N/<lang>/Pal/DataTable/Text/DT_UI_Common_Text_Common.json
 // Rows BUILDUP_PLAYER_STATUS_NN (name) and BUILDUP_PLAYER_STATUS_DESC_NN (description),
 // where NN is 00..12 -- the EPalRelicType enum value. That enum is dense 0..12 and its
-// order matches RELIC_TYPE_MAP in psp-core/src/domain/relic.rs exactly, which is what
+// order matches RELIC_TYPE_MAP in ps-core/src/domain/relic.rs exactly, which is what
 // lets us join text to key by index.
 //
 // Output shape matches the existing l10n convention (see work_suitability.json):
@@ -37,9 +37,9 @@ const RELIC_KEYS = [
 // [source dir in the game dump, destination dir under data/json/l10n].
 //
 // These are NOT always the same string. The game dumps Indonesian as `id`, but this
-// repo's Indonesian l10n lives in `id-id` (there is also a stale `id/` directory that
-// nothing reads). Writing to `id/` would silently leave Indonesian users with raw keys,
-// so the destination is stated explicitly rather than inferred from the source.
+// repo's Indonesian l10n lives in `id-id`. Writing to `id/` would silently leave
+// Indonesian users with raw keys, so the destination is stated explicitly rather than
+// inferred from the source.
 const LANGS = [
 	['de', 'de'],
 	['en', 'en'],
