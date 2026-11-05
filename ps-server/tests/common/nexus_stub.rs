@@ -11,8 +11,9 @@ use axum::routing::{get, post};
 use axum::Json;
 use serde_json::{json, Value};
 
-pub const PREMIUM_TOKEN: &str = "stub-premium-token";
-pub const FREE_TOKEN: &str = "stub-free-token";
+/// JWT-shaped, since the account is read from the access token's claims.
+pub const PREMIUM_TOKEN: &str = "eyJhbGciOiJub25lIn0.eyJzdWIiOiI3IiwidXNlciI6eyJpZCI6NywidXNlcm5hbWUiOiJUZXN0ZXIiLCJtZW1iZXJzaGlwX3JvbGVzIjpbIm1lbWJlciIsInN1cHBvcnRlciIsInByZW1pdW0iXSwiYXZhdGFyIjoiaHR0cHM6Ly9leGFtcGxlLmludmFsaWQvdXNlcnMvNy5wbmcifX0.stub";
+pub const FREE_TOKEN: &str = "eyJhbGciOiJub25lIn0.eyJzdWIiOiI3IiwidXNlciI6eyJpZCI6NywidXNlcm5hbWUiOiJUZXN0ZXIiLCJtZW1iZXJzaGlwX3JvbGVzIjpbIm1lbWJlciJdLCJhdmF0YXIiOiJodHRwczovL2V4YW1wbGUuaW52YWxpZC91c2Vycy83LnBuZyJ9fQ.stub";
 pub const MOD_ID: u32 = 4821;
 pub const FILE_ID: u32 = 99001;
 pub const OLD_FILE_ID: u32 = 99000;
@@ -85,7 +86,7 @@ pub async fn spawn_nexus_stub() -> NexusStub {
         files: Mutex::new(files),
     });
     let router = axum::Router::new()
-        .route("/v1/users/validate.json", get(validate))
+        .route("/oauth/userinfo", get(validate))
         .route("/v1/games/palworld.json", get(game))
         .route(
             "/v1/games/palworld/mods/{mod_id}/files/{file_id}/download_link.json",
@@ -142,17 +143,10 @@ async fn validate(State(state): State<Arc<StubState>>, headers: HeaderMap) -> Re
     if state.rate_limited.load(Ordering::SeqCst) {
         return rate_limited();
     }
-    let premium = match bearer(&headers).as_deref() {
-        Some(PREMIUM_TOKEN) => true,
-        Some(FREE_TOKEN) => false,
-        _ => return unauthorized(),
-    };
-    Json(json!({
-        "user_id": 7, "name": "Tester",
-        "is_premium?": premium, "is_premium": premium, "is_supporter": premium,
-        "email": "tester@example.invalid", "profile_url": "https://example.invalid/users/7"
-    }))
-    .into_response()
+    if !known_token(&headers) {
+        return unauthorized();
+    }
+    Json(json!({ "sub": "7" })).into_response()
 }
 
 async fn game(headers: HeaderMap) -> Response {

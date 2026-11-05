@@ -21,6 +21,8 @@ pub const CLIENT_ID_ENV: &str = "PS_NEXUS_CLIENT_ID";
 /// without registering the new one.
 pub const CALLBACK_PORT: u16 = 47310;
 pub const CALLBACK_PATH: &str = "/callback";
+/// `openid` unlocks the userinfo endpoint; `public` the mods API.
+pub const SCOPE: &str = "openid public";
 pub const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(300);
 const TOKEN_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_LIFETIME_SECS: u64 = 3600;
@@ -184,7 +186,7 @@ impl PkceOAuth {
             [
                 ("client_id", self.client_id.as_str()),
                 ("response_type", "code"),
-                ("scope", ""),
+                ("scope", SCOPE),
                 ("redirect_uri", redirect_uri.as_str()),
                 ("state", state.as_str()),
                 ("code_challenge_method", "S256"),
@@ -238,6 +240,12 @@ impl PkceOAuth {
                 .ok()
                 .and_then(|error| error.error_description.or(error.error))
                 .unwrap_or_else(|| status.to_string());
+            tracing::warn!(
+                %status,
+                grant_type = form[0].1,
+                %reason,
+                "Nexus Mods refused a token request"
+            );
             return Err(rejected(reason));
         }
         if !status.is_success() {
@@ -487,6 +495,7 @@ mod tests {
 
         let authorize = opened.lock().unwrap()[0].clone();
         assert_eq!(authorize["client_id"], "test-client");
+        assert_eq!(authorize["scope"], "openid public");
         assert_eq!(authorize["response_type"], "code");
         assert_eq!(authorize["code_challenge_method"], "S256");
         assert!(authorize["redirect_uri"].starts_with("http://127.0.0.1:"));

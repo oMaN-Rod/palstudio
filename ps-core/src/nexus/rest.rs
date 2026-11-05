@@ -11,30 +11,36 @@ pub struct Account {
 }
 
 #[derive(Deserialize)]
-struct AccountFields {
-    user_id: u64,
-    name: String,
-    #[serde(default)]
-    is_premium: Option<bool>,
-    #[serde(default, rename = "is_premium?")]
-    is_premium_legacy: Option<bool>,
-    #[serde(default)]
-    is_supporter: bool,
-    #[serde(default)]
-    profile_url: Option<String>,
+struct Claims {
+    user: ClaimedUser,
 }
 
-pub fn parse_account(value: Value) -> Result<Account, serde_json::Error> {
-    let fields: AccountFields = serde_json::from_value(value)?;
+#[derive(Deserialize)]
+struct ClaimedUser {
+    id: Value,
+    username: String,
+    #[serde(default)]
+    membership_roles: Vec<String>,
+    #[serde(default)]
+    avatar: Option<String>,
+}
+
+/// Reads the account from the claims of a Nexus Mods OAuth access token.
+pub fn account_from_claims(claims: Value) -> Result<Account, serde_json::Error> {
+    let user = serde_json::from_value::<Claims>(claims)?.user;
+    let user_id = match &user.id {
+        Value::Number(id) => id.as_u64(),
+        Value::String(id) => id.parse().ok(),
+        _ => None,
+    }
+    .ok_or_else(|| serde::de::Error::custom("`user.id` is not a user id"))?;
+    let has_role = |role: &str| user.membership_roles.iter().any(|held| held == role);
     Ok(Account {
-        user_id: fields.user_id,
-        name: fields.name,
-        is_premium: fields
-            .is_premium
-            .or(fields.is_premium_legacy)
-            .unwrap_or(false),
-        is_supporter: fields.is_supporter,
-        profile_url: fields.profile_url,
+        user_id,
+        is_premium: has_role("premium"),
+        is_supporter: has_role("supporter"),
+        name: user.username,
+        profile_url: user.avatar,
     })
 }
 
@@ -94,20 +100,24 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn an_account_reads_either_premium_flag_and_drops_the_key() {
-        let both = parse_account(json!({
-            "user_id": 7, "key": "SECRET", "name": "Tester", "is_premium?": false,
-            "is_premium": true, "is_supporter": true, "email": "t@example.invalid",
-            "profile_url": "https://example.invalid/u/7"
-        }))
+    fn claims_give_the_id_name_and_membership_roles() {
+        let premium = account_from_claims(json!({ "sub": "7", "user": {
+            "id": 7, "username": "Tester", "email": "t@example.invalid",
+            "avatar": "https://example.invalid/u/7.png",
+            "membership_roles": ["member", "supporter", "premium"]
+        } }))
         .unwrap();
-        assert_eq!(both.user_id, 7);
-        assert!(both.is_premium && both.is_supporter);
-        assert!(!serde_json::to_string(&both).unwrap().contains("SECRET"));
-        let legacy =
-            parse_account(json!({ "user_id": 8, "name": "Old", "is_premium?": true })).unwrap();
-        assert!(legacy.is_premium);
-        assert!(!legacy.is_supporter);
+        assert_eq!((premium.user_id, premium.name.as_str()), (7, "Tester"));
+        assert!(premium.is_premium && premium.is_supporter);
+        assert!(!serde_json::to_string(&premium)
+            .unwrap()
+            .contains("t@example.invalid"));
+        let member =
+            account_from_claims(json!({ "user": { "id": "8", "username": "Free" } })).unwrap();
+        assert_eq!(member.user_id, 8);
+        assert!(!member.is_premium && !member.is_supporter);
+        assert!(account_from_claims(json!({ "user": { "id": "x", "username": "X" } })).is_err());
+        assert!(account_from_claims(json!({ "sub": "7" })).is_err());
     }
 
     #[test]

@@ -18,5 +18,5 @@ pub use graphql::{
 pub use links::{parse_nxm, NxmError, NxmLink, GAME_DOMAIN};
 pub use rate_limit::RateLimit;
 pub use rest::{
-    categories_from_game, error_message, parse_account, Account, Category, DownloadLink,
+    categories_from_game, error_message, account_from_claims, Account, Category, DownloadLink,
 };

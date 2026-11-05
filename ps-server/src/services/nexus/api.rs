@@ -4,6 +4,8 @@ use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, AUTHORIZATION, USER_AGENT};
 use reqwest::StatusCode;
 use serde_json::{json, Value};
@@ -17,6 +19,8 @@ use super::oauth::AccessToken;
 use crate::services::mods::frameworks::source::Progress;
 
 pub const API_BASE: &str = "https://api.nexusmods.com";
+/// `/v1/users/validate.json` accepts only API keys, never an OAuth token.
+pub const USERINFO_URL: &str = "https://users.nexusmods.com/oauth/userinfo";
 pub const MAX_DOWNLOAD: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_JSON_BYTES: u64 = 16 * 1024 * 1024;
 const API_TIMEOUT: Duration = Duration::from_secs(30);
@@ -131,6 +135,7 @@ pub struct HttpNexusApi {
     api: reqwest::Client,
     download: reqwest::Client,
     v1_base: String,
+    userinfo_url: String,
     graphql_url: String,
     allow_http: bool,
     max_download: u64,
@@ -139,7 +144,10 @@ pub struct HttpNexusApi {
 
 impl HttpNexusApi {
     pub fn production() -> Self {
-        Self::new(API_BASE)
+        Self {
+            userinfo_url: USERINFO_URL.to_string(),
+            ..Self::new(API_BASE)
+        }
     }
 
     pub fn new(api_base: &str) -> Self {
@@ -162,6 +170,7 @@ impl HttpNexusApi {
             api,
             download,
             v1_base: format!("{api_base}/v1"),
+            userinfo_url: format!("{api_base}/oauth/userinfo"),
             graphql_url: format!("{api_base}/v2/graphql"),
             allow_http: api_base.starts_with("http://"),
             max_download: MAX_DOWNLOAD,
@@ -192,12 +201,23 @@ impl HttpNexusApi {
         query: &[(&str, String)],
         premium_route: bool,
     ) -> Result<Value, NexusError> {
+        let url = format!("{}{path}", self.v1_base);
+        self.authorized_get(token, &url, query, premium_route).await
+    }
+
+    async fn authorized_get(
+        &self,
+        token: &AccessToken,
+        url: &str,
+        query: &[(&str, String)],
+        premium_route: bool,
+    ) -> Result<Value, NexusError> {
         let mut bearer = HeaderValue::from_str(&format!("Bearer {}", token.expose()))
             .map_err(|_| NexusError::Unauthorized)?;
         bearer.set_sensitive(true);
         let response = self
             .api
-            .get(format!("{}{path}", self.v1_base))
+            .get(url)
             .header(AUTHORIZATION, bearer)
             .query(query)
             .send()
@@ -207,6 +227,8 @@ impl HttpNexusApi {
         let status = response.status();
         let body = read_capped(response, MAX_JSON_BYTES).await?;
         if !status.is_success() {
+            let message = nexus::error_message(&body).unwrap_or_default();
+            tracing::warn!(%status, url, %message, "Nexus Mods API request failed");
             return Err(v1_error(status, &body, limit.as_ref(), premium_route));
         }
         serde_json::from_slice(&body).map_err(|error| unexpected(status, error))
@@ -300,11 +322,16 @@ impl HttpNexusApi {
 
 #[async_trait]
 impl NexusApi for HttpNexusApi {
+    /// Userinfo carries only `sub`, so it just confirms Nexus Mods still
+    /// honours the token; the account comes from the token's own claims.
     async fn validate(&self, token: &AccessToken) -> Result<Account, NexusError> {
-        let value = self
-            .v1_get(token, "/users/validate.json", &[], false)
+        self.authorized_get(token, &self.userinfo_url, &[], false)
             .await?;
-        nexus::parse_account(value).map_err(|error| unexpected(StatusCode::OK, error))
+        let claims = token_claims(token).ok_or_else(|| NexusError::Api {
+            status: StatusCode::OK.as_u16(),
+            message: "the access token carries no account".to_string(),
+        })?;
+        nexus::account_from_claims(claims).map_err(|error| unexpected(StatusCode::OK, error))
     }
 
     async fn categories(&self, token: &AccessToken) -> Result<Vec<Category>, NexusError> {
@@ -419,6 +446,14 @@ fn unexpected(status: StatusCode, error: serde_json::Error) -> NexusError {
     }
 }
 
+/// The token's payload, read without checking its signature: Nexus Mods has
+/// just accepted the token, and it only labels the account in the UI.
+fn token_claims(token: &AccessToken) -> Option<Value> {
+    let payload = token.expose().split('.').nth(1)?;
+    let bytes = URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
 fn rate_limited(limit: Option<&RateLimit>) -> NexusError {
     NexusError::RateLimited {
         reset: limit
@@ -489,6 +524,10 @@ mod tests {
         AccessToken::new(text)
     }
 
+    fn jwt(claims: Value) -> String {
+        format!("e30.{}.sig", URL_SAFE_NO_PAD.encode(claims.to_string()))
+    }
+
     type Seen = Arc<std::sync::Mutex<Vec<AxumHeaders>>>;
 
     const RATE_HEADERS: [(&str, &str); 6] = [
@@ -505,29 +544,27 @@ mod tests {
         let seen: Seen = Default::default();
         let router = axum::Router::new()
             .route(
-                "/v1/users/validate.json",
-                get(|State(seen): State<Seen>, headers: AxumHeaders| async move {
-                    seen.lock().unwrap().push(headers);
-                    (
-                        RATE_HEADERS,
-                        Json(serde_json::json!({
-                            "user_id": 7, "key": "k-123", "name": "Tester", "is_premium?": false,
-                            "is_premium": true, "is_supporter": true,
-                            "email": "t@example.invalid", "profile_url": "https://example.invalid/u/7"
-                        })),
-                    )
-                }),
+                "/oauth/userinfo",
+                get(
+                    |State(seen): State<Seen>, headers: AxumHeaders| async move {
+                        seen.lock().unwrap().push(headers);
+                        (RATE_HEADERS, Json(serde_json::json!({ "sub": "7" })))
+                    },
+                ),
             )
             .with_state(seen.clone());
         let api = HttpNexusApi::new(&spawn(router).await);
 
-        let account = api.validate(&token("k-123")).await.unwrap();
+        let jwt = jwt(serde_json::json!({ "sub": "7", "user": {
+            "id": 7, "username": "Tester", "membership_roles": ["member", "premium"]
+        } }));
+        let account = api.validate(&token(&jwt)).await.unwrap();
         assert_eq!(
             (account.user_id, account.name.as_str(), account.is_premium),
             (7, "Tester", true)
         );
         let headers = seen.lock().unwrap()[0].clone();
-        assert_eq!(headers["authorization"], "Bearer k-123");
+        assert_eq!(headers["authorization"], format!("Bearer {jwt}"));
         assert!(headers.get("apikey").is_none());
         assert_eq!(headers["application-name"], "PalStudio");
         assert_eq!(headers["application-version"], env!("CARGO_PKG_VERSION"));
@@ -539,9 +576,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_token_without_account_claims_is_an_unexpected_reply() {
+        let router = axum::Router::new().route(
+            "/oauth/userinfo",
+            get(|| async { Json(serde_json::json!({ "sub": "7" })) }),
+        );
+        let api = HttpNexusApi::new(&spawn(router).await);
+        for opaque in ["k-123".to_string(), jwt(serde_json::json!({ "sub": "7" }))] {
+            let error = api.validate(&token(&opaque)).await.unwrap_err();
+            assert_eq!(error.code(), "nexus_error", "{error}");
+        }
+    }
+
+    #[tokio::test]
     async fn a_rejected_token_is_unauthorized() {
         let router = axum::Router::new().route(
-            "/v1/users/validate.json",
+            "/oauth/userinfo",
             get(|| async {
                 (
                     AxumStatus::UNAUTHORIZED,
@@ -559,7 +609,7 @@ mod tests {
     #[tokio::test]
     async fn a_403_outside_download_link_is_not_premium_required() {
         let router = axum::Router::new().route(
-            "/v1/users/validate.json",
+            "/oauth/userinfo",
             get(|| async {
                 (
                     AxumStatus::FORBIDDEN,
@@ -792,18 +842,20 @@ mod tests {
         let leaked: Seen = Default::default();
         let decoy = axum::Router::new()
             .route(
-                "/v1/users/validate.json",
-                get(|State(seen): State<Seen>, headers: AxumHeaders| async move {
-                    seen.lock().unwrap().push(headers);
-                    Json(serde_json::json!({ "user_id": 1, "name": "Decoy", "is_premium": false }))
-                }),
+                "/oauth/userinfo",
+                get(
+                    |State(seen): State<Seen>, headers: AxumHeaders| async move {
+                        seen.lock().unwrap().push(headers);
+                        Json(serde_json::json!({ "sub": "1" }))
+                    },
+                ),
             )
             .with_state(leaked.clone());
         let decoy_base = spawn(decoy).await;
 
-        let target = format!("{decoy_base}/v1/users/validate.json");
+        let target = format!("{decoy_base}/oauth/userinfo");
         let router = axum::Router::new().route(
-            "/v1/users/validate.json",
+            "/oauth/userinfo",
             get(move || {
                 let target = target.clone();
                 async move {
