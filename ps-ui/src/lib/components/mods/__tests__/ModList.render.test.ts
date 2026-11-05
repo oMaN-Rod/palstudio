@@ -9,16 +9,10 @@ const { holder, modal, remote, env } = vi.hoisted(() => ({
 	holder: { state: undefined as unknown, nexus: undefined as unknown },
 	modal: { showModal: vi.fn(), showConfirmModal: vi.fn() },
 	remote: { active: false },
-	env: { desktop: 'true', nexus: true }
+	env: { desktop: 'true' }
 }));
 
 vi.mock('$lib/signal/remoteMode.svelte', () => ({ getRemoteMode: () => remote }));
-
-vi.mock('$lib/components/mods/nexusAvailability', () => ({
-	get NEXUS_ENABLED() {
-		return env.nexus;
-	}
-}));
 
 vi.mock('$env/static/public', () => ({
 	get PUBLIC_DESKTOP_MODE() {
@@ -182,7 +176,6 @@ beforeEach(() => {
 	modal.showModal.mockReset();
 	remote.active = false;
 	env.desktop = 'true';
-	env.nexus = true;
 	const s = state();
 	s.targets = [target(), dockerTarget];
 	s.mods = [
@@ -1449,17 +1442,6 @@ describe('ModList', () => {
 			await fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
 
 			expect(checkUpdates).toHaveBeenCalledWith('client-abc', { force: true });
-		});
-
-		it('neither checks for updates nor offers to while Nexus Mods is off', () => {
-			vi.mocked(send).mockClear();
-			env.nexus = false;
-			render(ModList, { targetId: 'client-abc' });
-
-			expect(
-				vi.mocked(send).mock.calls.some((call) => call[0] === MessageType.MOD_UPDATE_CHECK)
-			).toBe(false);
-			expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull();
 		});
 
 		it('sends no automatic check outside the desktop app', () => {

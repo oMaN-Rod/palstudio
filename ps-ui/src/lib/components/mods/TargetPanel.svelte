@@ -38,7 +38,6 @@
 	import ConflictsPanel from './ConflictsPanel.svelte';
 	import LivePanel from './LivePanel.svelte';
 	import DiscoverPanel from './DiscoverPanel.svelte';
-	import { NEXUS_ENABLED } from './nexusAvailability';
 	import { canLaunch, canLinkWorlds } from './modCapabilities';
 
 	let { targetId, tab = $bindable('mods') }: { targetId: string; tab?: ModsTab } = $props();
@@ -108,7 +107,7 @@
 	const launchable = $derived(target ? canLaunch(target, mode) : false);
 	const worldsShown = $derived(target ? canLinkWorlds(target, mode) : false);
 	const liveShown = $derived(target?.kind === 'client');
-	const discoverShown = $derived(NEXUS_ENABLED && mode.desktop && !mode.remote);
+	const discoverShown = $derived(mode.desktop && !mode.remote);
 	const tabs = $derived(
 		allTabs.filter(
 			(entry) =>

@@ -9,7 +9,7 @@ import '../../live/__tests__/fixtures/animatePolyfill';
 const { env, holder, modal, remote, remoteMock, send } = vi.hoisted(() => {
 	const remote = { active: false };
 	return {
-		env: { desktop: 'false', nexus: true },
+		env: { desktop: 'false' },
 		holder: { state: undefined as unknown },
 		modal: { showModal: vi.fn(), showConfirmModal: vi.fn() },
 		remote,
@@ -32,12 +32,6 @@ vi.mock('../ScanPanel.svelte', () => ({ default: () => {} }));
 vi.mock('../FrameworksPanel.svelte', () => ({ default: () => {} }));
 vi.mock('../LivePanel.svelte', () => ({ default: () => {} }));
 vi.mock('../DiscoverPanel.svelte', () => ({ default: () => {} }));
-vi.mock('$lib/components/mods/nexusAvailability', () => ({
-	get NEXUS_ENABLED() {
-		return env.nexus;
-	}
-}));
-
 vi.mock('$env/static/public', () => ({
 	get PUBLIC_DESKTOP_MODE() {
 		return env.desktop;
@@ -85,7 +79,6 @@ const state = () => holder.state as ModsState;
 
 beforeEach(() => {
 	env.desktop = 'false';
-	env.nexus = true;
 	remote.active = false;
 	send.mockReset();
 	modal.showConfirmModal.mockReset().mockResolvedValue(false);
@@ -97,14 +90,6 @@ beforeEach(() => {
 });
 
 describe('TargetPanel', () => {
-	it('hides the Discover tab while Nexus Mods is off', () => {
-		env.desktop = 'true';
-		env.nexus = false;
-		render(TargetPanelHarness, { targetId: 'client-abc' });
-
-		expect(screen.queryByRole('tab', { name: 'Discover' })).toBeNull();
-	});
-
 	it('loads the profiles and plan of its target', () => {
 		render(TargetPanelHarness, { targetId: 'client-abc' });
 
